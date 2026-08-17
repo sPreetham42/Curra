@@ -568,29 +568,175 @@ func TestHeuristicsDrivesSearch(t *testing.T) {
 }
 
 func BenchmarkSearchModes(b *testing.B) {
-	p := overlapProblem()
-	b.Run("Basic", func(b *testing.B) {
+	easyP := overlapProblem()
+	hardP := hardContentionProblem()
+
+	b.Run("Easy_Basic", func(b *testing.B) {
 		s := backtracking.New()
 		opts := problem.SolveOptions{SearchMode: problem.SearchModeBasic}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, diag, err := s.Solve(context.Background(), p, opts)
+			_, diag, err := s.Solve(context.Background(), easyP, opts)
 			if err != nil {
 				b.Fatalf("Solve failed: %v", err)
 			}
 			b.ReportMetric(float64(diag.Backtracks), "backtracks/op")
+			b.ReportMetric(float64(diag.Candidates), "candidates/op")
+			b.ReportMetric(float64(diag.NodesExplored), "nodes/op")
 		}
 	})
-	b.Run("Heuristic", func(b *testing.B) {
+	b.Run("Easy_Heuristic", func(b *testing.B) {
 		s := backtracking.New()
 		opts := problem.SolveOptions{SearchMode: problem.SearchModeHeuristic}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, diag, err := s.Solve(context.Background(), p, opts)
+			_, diag, err := s.Solve(context.Background(), easyP, opts)
 			if err != nil {
 				b.Fatalf("Solve failed: %v", err)
 			}
 			b.ReportMetric(float64(diag.Backtracks), "backtracks/op")
+			b.ReportMetric(float64(diag.Candidates), "candidates/op")
+			b.ReportMetric(float64(diag.NodesExplored), "nodes/op")
 		}
 	})
+	b.Run("Hard_Basic", func(b *testing.B) {
+		s := backtracking.New()
+		opts := problem.SolveOptions{SearchMode: problem.SearchModeBasic}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, diag, err := s.Solve(context.Background(), hardP, opts)
+			if err != nil {
+				b.Fatalf("Solve failed: %v", err)
+			}
+			b.ReportMetric(float64(diag.Backtracks), "backtracks/op")
+			b.ReportMetric(float64(diag.Candidates), "candidates/op")
+			b.ReportMetric(float64(diag.NodesExplored), "nodes/op")
+		}
+	})
+	b.Run("Hard_Heuristic", func(b *testing.B) {
+		s := backtracking.New()
+		opts := problem.SolveOptions{SearchMode: problem.SearchModeHeuristic}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, diag, err := s.Solve(context.Background(), hardP, opts)
+			if err != nil {
+				b.Fatalf("Solve failed: %v", err)
+			}
+			b.ReportMetric(float64(diag.Backtracks), "backtracks/op")
+			b.ReportMetric(float64(diag.Candidates), "candidates/op")
+			b.ReportMetric(float64(diag.NodesExplored), "nodes/op")
+		}
+	})
+}
+
+func hardContentionProblem() problem.Problem {
+	tenantID := model.TenantID("tenant-hard")
+	termID := model.TermID("term-hard")
+
+	labFeature := model.RoomFeatureID("feature-lab")
+	compFeature := model.RoomFeatureID("feature-comp")
+
+	groupAWhole := model.StudentGroupID("group-a-whole")
+	groupALab1 := model.StudentGroupID("group-a-lab-1")
+	groupALab2 := model.StudentGroupID("group-a-lab-2")
+	groupBWhole := model.StudentGroupID("group-b-whole")
+
+	fac1 := model.FacultyID("fac-1")
+	fac2 := model.FacultyID("fac-2")
+	fac3 := model.FacultyID("fac-3")
+
+	roomLec1 := model.RoomID("room-lec-1")
+	roomLab1 := model.RoomID("room-lab-1")
+	roomLab2 := model.RoomID("room-lab-2")
+
+	slotM1 := model.TimeSlotID("mon-1")
+	slotM2 := model.TimeSlotID("mon-2")
+	slotT1 := model.TimeSlotID("tue-1")
+	slotT2 := model.TimeSlotID("tue-2")
+
+	p := problem.Problem{
+		TenantID: tenantID,
+		Term:     model.Term{ID: termID, TenantID: tenantID, Name: "Hard Term"},
+		Departments: map[model.DepartmentID]model.Department{
+			"dept-1": {ID: "dept-1", TenantID: tenantID, Name: "Dept 1"},
+		},
+		Programs: map[model.ProgramID]model.Program{
+			"prog-1": {ID: "prog-1", DepartmentID: "dept-1", Name: "Prog 1"},
+		},
+		Classes: map[model.ClassID]model.Class{
+			"class-a": {
+				ID:              "class-a",
+				ProgramID:       "prog-1",
+				Name:            "Class A",
+				WholeGroupID:    groupAWhole,
+				StudentGroupIDs: []model.StudentGroupID{groupAWhole, groupALab1, groupALab2},
+			},
+			"class-b": {
+				ID:              "class-b",
+				ProgramID:       "prog-1",
+				Name:            "Class B",
+				WholeGroupID:    groupBWhole,
+				StudentGroupIDs: []model.StudentGroupID{groupBWhole},
+			},
+		},
+		StudentGroups: map[model.StudentGroupID]model.StudentGroup{
+			groupAWhole: {ID: groupAWhole, ClassID: "class-a", Name: "A Whole", Size: 50},
+			groupALab1:  {ID: groupALab1, ClassID: "class-a", Name: "A Lab 1", Size: 25},
+			groupALab2:  {ID: groupALab2, ClassID: "class-a", Name: "A Lab 2", Size: 25},
+			groupBWhole: {ID: groupBWhole, ClassID: "class-b", Name: "B Whole", Size: 50},
+		},
+		Subjects: map[model.SubjectID]model.Subject{
+			"subj-t1": {ID: "subj-t1", Code: "T1", Name: "Theory 1"},
+			"subj-t2": {ID: "subj-t2", Code: "T2", Name: "Theory 2"},
+			"subj-l1": {ID: "subj-l1", Code: "L1", Name: "Lab 1"},
+			"subj-l2": {ID: "subj-l2", Code: "L2", Name: "Lab 2"},
+		},
+		CourseOfferings: map[model.CourseOfferingID]model.CourseOffering{
+			"off-a-lab1":   {ID: "off-a-lab1", TermID: termID, ClassID: "class-a", SubjectID: "subj-l1", StudentGroupID: groupALab1, FacultyID: fac2, SessionRequirementIDs: []model.SessionRequirementID{"req-a-lab1"}},
+			"off-a-lab2":   {ID: "off-a-lab2", TermID: termID, ClassID: "class-a", SubjectID: "subj-l2", StudentGroupID: groupALab2, FacultyID: fac3, SessionRequirementIDs: []model.SessionRequirementID{"req-a-lab2"}},
+			"off-a-theory": {ID: "off-a-theory", TermID: termID, ClassID: "class-a", SubjectID: "subj-t1", StudentGroupID: groupAWhole, FacultyID: fac1, SessionRequirementIDs: []model.SessionRequirementID{"req-a-theory"}},
+			"off-b-theory": {ID: "off-b-theory", TermID: termID, ClassID: "class-b", SubjectID: "subj-t2", StudentGroupID: groupBWhole, FacultyID: fac1, SessionRequirementIDs: []model.SessionRequirementID{"req-b-theory"}},
+		},
+		SessionRequirements: map[model.SessionRequirementID]model.SessionRequirement{
+			"req-a-lab1":   {ID: "req-a-lab1", CourseOfferingID: "off-a-lab1", Type: model.SessionTypeLab, SessionsPerWeek: 1, Duration: 2, Consecutive: true, RequiredRoomFeatureIDs: []model.RoomFeatureID{labFeature}},
+			"req-a-lab2":   {ID: "req-a-lab2", CourseOfferingID: "off-a-lab2", Type: model.SessionTypeLab, SessionsPerWeek: 1, Duration: 2, Consecutive: true, RequiredRoomFeatureIDs: []model.RoomFeatureID{compFeature}},
+			"req-a-theory": {ID: "req-a-theory", CourseOfferingID: "off-a-theory", Type: model.SessionTypeTheory, SessionsPerWeek: 2, Duration: 1, Consecutive: true},
+			"req-b-theory": {ID: "req-b-theory", CourseOfferingID: "off-b-theory", Type: model.SessionTypeTheory, SessionsPerWeek: 1, Duration: 1, Consecutive: true},
+		},
+		Faculty: map[model.FacultyID]model.Faculty{
+			fac1: {ID: fac1, Name: "Faculty 1"},
+			fac2: {ID: fac2, Name: "Faculty 2"},
+			fac3: {ID: fac3, Name: "Faculty 3"},
+		},
+		Rooms: map[model.RoomID]model.Room{
+			roomLec1: {ID: roomLec1, Name: "Lec 1", Capacity: 60},
+			roomLab1: {ID: roomLab1, Name: "Lab 1", Capacity: 30, FeatureIDs: []model.RoomFeatureID{labFeature}},
+			roomLab2: {ID: roomLab2, Name: "Lab 2", Capacity: 30, FeatureIDs: []model.RoomFeatureID{compFeature}},
+		},
+		RoomFeatures: map[model.RoomFeatureID]model.RoomFeature{
+			labFeature:  {ID: labFeature, Name: "Lab Feature"},
+			compFeature: {ID: compFeature, Name: "Comp Feature"},
+		},
+		TimeSlots: map[model.TimeSlotID]model.TimeSlot{
+			slotM1: {ID: slotM1, Day: time.Monday, Period: 1, Label: "Mon P1"},
+			slotM2: {ID: slotM2, Day: time.Monday, Period: 2, Label: "Mon P2"},
+			slotT1: {ID: slotT1, Day: time.Tuesday, Period: 1, Label: "Tue P1"},
+			slotT2: {ID: slotT2, Day: time.Tuesday, Period: 2, Label: "Tue P2"},
+		},
+		PeriodsPerDay: 2,
+		FacultyAvailabilities: []model.FacultyAvailability{
+			{FacultyID: fac1, TimeSlotID: slotM1}, {FacultyID: fac1, TimeSlotID: slotM2}, {FacultyID: fac1, TimeSlotID: slotT1},
+			{FacultyID: fac2, TimeSlotID: slotM1}, {FacultyID: fac2, TimeSlotID: slotM2}, {FacultyID: fac2, TimeSlotID: slotT1}, {FacultyID: fac2, TimeSlotID: slotT2},
+			{FacultyID: fac3, TimeSlotID: slotM1}, {FacultyID: fac3, TimeSlotID: slotM2}, {FacultyID: fac3, TimeSlotID: slotT1}, {FacultyID: fac3, TimeSlotID: slotT2},
+		},
+		RoomAvailabilities: []model.RoomAvailability{
+			{RoomID: roomLec1, TimeSlotID: slotM1}, {RoomID: roomLec1, TimeSlotID: slotM2},
+			{RoomID: roomLec1, TimeSlotID: slotT1}, {RoomID: roomLec1, TimeSlotID: slotT2},
+			{RoomID: roomLab1, TimeSlotID: slotM1}, {RoomID: roomLab1, TimeSlotID: slotM2},
+			{RoomID: roomLab1, TimeSlotID: slotT1}, {RoomID: roomLab1, TimeSlotID: slotT2},
+			{RoomID: roomLab2, TimeSlotID: slotM1}, {RoomID: roomLab2, TimeSlotID: slotM2},
+			{RoomID: roomLab2, TimeSlotID: slotT1}, {RoomID: roomLab2, TimeSlotID: slotT2},
+		},
+	}
+	return p
 }

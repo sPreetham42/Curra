@@ -19,6 +19,37 @@ func NewSolution() Solution {
 	}
 }
 
+// Clone returns a deep copy of the solution and its indexes.
+func (s Solution) Clone() Solution {
+	cloned := Solution{
+		Assignments: make([]Assignment, len(s.Assignments)),
+		Index:       NewSolutionIndex(),
+		Score:       s.Score,
+	}
+	copy(cloned.Assignments, s.Assignments)
+	for k, v := range s.Index.FacultySlot {
+		cloned.Index.FacultySlot[k] = v
+	}
+	for k, v := range s.Index.RoomSlot {
+		cloned.Index.RoomSlot[k] = v
+	}
+	for k, v := range s.Index.StudentGroupSlot {
+		cloned.Index.StudentGroupSlot[k] = v
+	}
+	for k, v := range s.Index.RequirementCount {
+		cloned.Index.RequirementCount[k] = v
+	}
+	for k, v := range s.Index.byID {
+		cloned.Index.byID[k] = v
+	}
+	return cloned
+}
+
+// CalculateScore evaluates the solution against the problem soft constraints without mutating anything.
+func (s *Solution) CalculateScore(p *Problem) scorer.ScoreBreakdown {
+	return p.StudentGapPenalty(s)
+}
+
 // AddAssignment appends and indexes an assignment.
 func (s *Solution) AddAssignment(p *Problem, a Assignment) error {
 	if err := s.Index.Add(p, a); err != nil {

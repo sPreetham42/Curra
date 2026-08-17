@@ -2,6 +2,7 @@ package problem
 
 import (
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/scorer"
 )
 
 // Problem is a self-contained academic scheduling instance.
@@ -24,6 +25,9 @@ type Problem struct {
 	RoomFeatures          map[model.RoomFeatureID]model.RoomFeature
 	TimeSlots             map[model.TimeSlotID]model.TimeSlot
 
+	// LockedAssignments contains pre-scheduled assignments that must be preserved.
+	LockedAssignments []Assignment
+
 	FacultyAvailable map[model.FacultyID]map[model.TimeSlotID]struct{}
 	RoomAvailable    map[model.RoomID]map[model.TimeSlotID]struct{}
 
@@ -33,6 +37,49 @@ type Problem struct {
 	StudentGroupOverlaps map[model.StudentGroupID]map[model.StudentGroupID]struct{}
 	// PeriodsPerDay is the number of periods on each working day.
 	PeriodsPerDay int
+}
+
+// StudentGapPenalty computes the student gap penalty for the solution without mutating anything.
+func (p *Problem) StudentGapPenalty(solution *Solution) scorer.ScoreBreakdown {
+	if solution == nil || len(solution.Assignments) == 0 {
+		return scorer.ScoreBreakdown{}
+	}
+
+	groups := make([]model.StudentGroupID, 0, len(p.StudentGroups))
+	for g := range p.StudentGroups {
+		groups = append(groups, g)
+	}
+	if len(groups) == 0 {
+		seenGroups := make(map[model.StudentGroupID]struct{})
+		for _, a := range solution.Assignments {
+			seenGroups[a.StudentGroupID] = struct{}{}
+		}
+		for g := range seenGroups {
+			groups = append(groups, g)
+		}
+	}
+
+	var occupied []scorer.OccupiedPeriod
+	for _, a := range solution.Assignments {
+		slotIDs, ok := a.OccupiedSlotIDs(p)
+		if !ok {
+			continue
+		}
+		for _, sid := range slotIDs {
+			slot, ok := p.TimeSlots[sid]
+			if !ok {
+				continue
+			}
+
+			occupied = append(occupied, scorer.OccupiedPeriod{
+				StudentGroupID: a.StudentGroupID,
+				Day:            slot.Day,
+				Period:         slot.Period,
+			})
+		}
+	}
+
+	return scorer.CalculateStudentGapPenalty(groups, occupied)
 }
 
 // Prepare builds derived indexes used by constraints and the solver.

@@ -10,6 +10,7 @@ import (
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/scorer"
 )
 
 var (
@@ -42,11 +43,19 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 	}
 
 	p.Prepare()
-	decisions := buildDecisions(&p)
 	solution := problem.NewSolution()
+	for _, locked := range p.LockedAssignments {
+		if err := solution.AddAssignment(&p, locked); err != nil {
+			return problem.Solution{}, diag, fmt.Errorf("seed locked assignment: %w", err)
+		}
+	}
+
+	decisions := buildDecisions(&p)
 
 	var err error
-	if options.SearchMode == problem.SearchModeBasic {
+	if len(decisions) == 0 {
+		err = nil
+	} else if options.SearchMode == problem.SearchModeBasic {
 		err = s.searchBasic(ctx, &p, options, decisions, 0, &solution, &diag)
 	} else {
 		domains := buildInitialDomains(&p, decisions, &solution, s.Constraints, &diag, options.ViolationLimit)
@@ -68,6 +77,13 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 			diag.Message = context.DeadlineExceeded.Error()
 		}
 		return problem.Solution{}, diag, err
+	}
+
+	breakdown := p.StudentGapPenalty(&solution)
+	solution.Score = scorer.Score{
+		HardViolations: 0,
+		SoftPenalty:    breakdown.SoftPenalty,
+		Breakdown:      breakdown,
 	}
 
 	diag.Status = diagnostics.SolveStatusSolved
@@ -376,10 +392,16 @@ func buildDecisions(p *problem.Problem) []decision {
 	offerings := sortedOfferings(p)
 	decisions := make([]decision, 0)
 
+	lockedCounts := make(map[model.SessionRequirementID]int)
+	for _, locked := range p.LockedAssignments {
+		lockedCounts[locked.SessionRequirementID]++
+	}
+
 	for _, offering := range offerings {
 		requirements := requirementsForOffering(p, offering)
 		for _, requirement := range requirements {
-			for instance := 0; instance < requirement.SessionsPerWeek; instance++ {
+			locked := lockedCounts[requirement.ID]
+			for instance := locked; instance < requirement.SessionsPerWeek; instance++ {
 				decisions = append(decisions, decision{
 					Offering:    offering,
 					Requirement: requirement,

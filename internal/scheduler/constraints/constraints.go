@@ -15,8 +15,26 @@ type Constraint interface {
 	Check(p *problem.Problem, solution *problem.Solution, assignment problem.Assignment) []diagnostics.Violation
 }
 
+// ScopedValidator checks resource-local hard constraints for an assignment at a slot.
+type ScopedValidator interface {
+	Constraint
+	CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation
+}
+
 func DefaultHardConstraints() []Constraint {
 	return []Constraint{
+		FacultyConflict{},
+		RoomConflict{},
+		StudentGroupConflict{},
+		RoomCapacity{},
+		FacultyAvailability{},
+		RoomAvailability{},
+		RoomFeatureCompatibility{},
+	}
+}
+
+func DefaultScopedValidators() []ScopedValidator {
+	return []ScopedValidator{
 		FacultyConflict{},
 		RoomConflict{},
 		StudentGroupConflict{},
@@ -44,13 +62,18 @@ func (c FacultyConflict) Check(p *problem.Problem, solution *problem.Solution, a
 	if !ok {
 		return invalidDurationViolation(c.Name(), assignment)
 	}
-	if conflictingID, ok := solution.Index.FacultyConflict(assignment.FacultyID, slotIDs); ok {
+	if conflictingID, ok := solution.Index.FacultyConflict(assignment.FacultyID, slotIDs); ok && conflictingID != assignment.ID {
 		return []diagnostics.Violation{baseViolation(c.Name(), assignment, "faculty is already scheduled in an occupied time slot", map[string]string{
 			"facultyId":               string(assignment.FacultyID),
 			"conflictingAssignmentId": string(conflictingID),
 		}, nil)}
 	}
 	return nil
+}
+
+func (c FacultyConflict) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	a.TimeSlotID = slot
+	return c.Check(p, solution, a)
 }
 
 type RoomConflict struct{}
@@ -62,13 +85,18 @@ func (c RoomConflict) Check(p *problem.Problem, solution *problem.Solution, assi
 	if !ok {
 		return invalidDurationViolation(c.Name(), assignment)
 	}
-	if conflictingID, ok := solution.Index.RoomConflict(assignment.RoomID, slotIDs); ok {
+	if conflictingID, ok := solution.Index.RoomConflict(assignment.RoomID, slotIDs); ok && conflictingID != assignment.ID {
 		return []diagnostics.Violation{baseViolation(c.Name(), assignment, "room is already scheduled in an occupied time slot", map[string]string{
 			"roomId":                  string(assignment.RoomID),
 			"conflictingAssignmentId": string(conflictingID),
 		}, nil)}
 	}
 	return nil
+}
+
+func (c RoomConflict) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	a.TimeSlotID = slot
+	return c.Check(p, solution, a)
 }
 
 type StudentGroupConflict struct{}
@@ -81,7 +109,7 @@ func (c StudentGroupConflict) Check(p *problem.Problem, solution *problem.Soluti
 		return invalidDurationViolation(c.Name(), assignment)
 	}
 	for _, groupID := range p.OverlappingStudentGroupIDs(assignment.StudentGroupID) {
-		if conflictingID, ok := solution.Index.StudentGroupConflict(groupID, slotIDs); ok {
+		if conflictingID, ok := solution.Index.StudentGroupConflict(groupID, slotIDs); ok && conflictingID != assignment.ID {
 			return []diagnostics.Violation{baseViolation(c.Name(), assignment, "student group overlaps another scheduled group in an occupied time slot", map[string]string{
 				"studentGroupId":          string(assignment.StudentGroupID),
 				"overlappingGroupId":      string(groupID),
@@ -90,6 +118,11 @@ func (c StudentGroupConflict) Check(p *problem.Problem, solution *problem.Soluti
 		}
 	}
 	return nil
+}
+
+func (c StudentGroupConflict) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	a.TimeSlotID = slot
+	return c.Check(p, solution, a)
 }
 
 type RoomCapacity struct{}
@@ -116,6 +149,11 @@ func (c RoomCapacity) Check(p *problem.Problem, _ *problem.Solution, assignment 
 	return nil
 }
 
+func (c RoomCapacity) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	a.TimeSlotID = slot
+	return c.Check(p, solution, a)
+}
+
 type FacultyAvailability struct{}
 
 func (FacultyAvailability) Name() string { return "FacultyAvailability" }
@@ -133,6 +171,11 @@ func (c FacultyAvailability) Check(p *problem.Problem, _ *problem.Solution, assi
 		})}
 	}
 	return nil
+}
+
+func (c FacultyAvailability) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	a.TimeSlotID = slot
+	return c.Check(p, solution, a)
 }
 
 type RoomAvailability struct{}
@@ -154,6 +197,11 @@ func (c RoomAvailability) Check(p *problem.Problem, _ *problem.Solution, assignm
 	return nil
 }
 
+func (c RoomAvailability) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	a.TimeSlotID = slot
+	return c.Check(p, solution, a)
+}
+
 type RoomFeatureCompatibility struct{}
 
 func (RoomFeatureCompatibility) Name() string { return "RoomFeatureCompatibility" }
@@ -173,6 +221,11 @@ func (c RoomFeatureCompatibility) Check(p *problem.Problem, _ *problem.Solution,
 		})}
 	}
 	return nil
+}
+
+func (c RoomFeatureCompatibility) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	a.TimeSlotID = slot
+	return c.Check(p, solution, a)
 }
 
 func baseViolation(name string, assignment problem.Assignment, message string, related map[string]string, metadata map[string]string) diagnostics.Violation {

@@ -255,7 +255,157 @@ func Validate(p Problem) []diagnostics.Violation {
 		violations = append(violations, validationViolation("problem has no time slots", nil, nil))
 	}
 
+	p.BuildSlotIndex()
+	p.BuildAvailabilityIndexes()
+	p.BuildStudentGroupOverlaps()
+
+	seenLockedIDs := make(map[AssignmentID]struct{}, len(p.LockedAssignments))
+	lockedReqCounts := make(map[model.SessionRequirementID]int)
+
+	for _, a := range p.LockedAssignments {
+		related := map[string]string{
+			"assignmentId":         string(a.ID),
+			"courseOfferingId":     string(a.CourseOfferingID),
+			"sessionRequirementId": string(a.SessionRequirementID),
+			"facultyId":            string(a.FacultyID),
+			"studentGroupId":       string(a.StudentGroupID),
+			"roomId":               string(a.RoomID),
+			"timeSlotId":           string(a.TimeSlotID),
+		}
+
+		if a.ID == "" {
+			violations = append(violations, validationViolation("locked assignment has empty ID", related, nil))
+		} else if _, seen := seenLockedIDs[a.ID]; seen {
+			violations = append(violations, validationViolation("duplicate locked assignment ID", related, nil))
+		}
+		seenLockedIDs[a.ID] = struct{}{}
+
+		offering, hasOffering := p.CourseOfferings[a.CourseOfferingID]
+		if a.CourseOfferingID == "" || !hasOffering {
+			violations = append(violations, validationViolation("locked assignment references missing course offering", related, nil))
+		}
+
+		req, hasReq := p.SessionRequirements[a.SessionRequirementID]
+		if a.SessionRequirementID == "" || !hasReq {
+			violations = append(violations, validationViolation("locked assignment references missing session requirement", related, nil))
+		} else if hasOffering && req.CourseOfferingID != a.CourseOfferingID {
+			violations = append(violations, validationViolation("locked assignment session requirement belongs to a different course offering", related, nil))
+		} else if hasReq {
+			lockedReqCounts[a.SessionRequirementID]++
+		}
+
+		if a.FacultyID == "" || !hasFaculty(p, a.FacultyID) {
+			violations = append(violations, validationViolation("locked assignment references missing faculty", related, nil))
+		} else if hasOffering && offering.FacultyID != a.FacultyID {
+			violations = append(violations, validationViolation("locked assignment faculty does not match course offering faculty", related, nil))
+		}
+
+		group, hasGroup := p.StudentGroups[a.StudentGroupID]
+		if a.StudentGroupID == "" || !hasGroup {
+			violations = append(violations, validationViolation("locked assignment references missing student group", related, nil))
+		} else if hasOffering && offering.StudentGroupID != a.StudentGroupID {
+			violations = append(violations, validationViolation("locked assignment student group does not match course offering student group", related, nil))
+		}
+
+		room, hasRoom := p.Rooms[a.RoomID]
+		if a.RoomID == "" || !hasRoom {
+			violations = append(violations, validationViolation("locked assignment references missing room", related, nil))
+		}
+
+		if a.TimeSlotID == "" || !hasTimeSlot(p, a.TimeSlotID) {
+			violations = append(violations, validationViolation("locked assignment references missing time slot", related, nil))
+		}
+
+		if hasReq && hasTimeSlot(p, a.TimeSlotID) {
+			slotIDs, ok := p.OccupiedSlotIDs(a.TimeSlotID, req.Duration)
+			if !ok {
+				violations = append(violations, validationViolation("locked assignment does not fit in the recurring time-slot grid", related, nil))
+			} else {
+				if hasRoom && hasGroup && room.Capacity < group.Size {
+					violations = append(violations, validationViolation("locked assignment room capacity is below student group size", related, map[string]string{
+						"roomCapacity":     fmt.Sprintf("%d", room.Capacity),
+						"studentGroupSize": fmt.Sprintf("%d", group.Size),
+					}))
+				}
+				if hasRoom && hasOffering && hasReq {
+					requiredFeatures := p.RequiredRoomFeatures(a.CourseOfferingID, a.SessionRequirementID)
+					if !p.RoomHasFeatures(a.RoomID, requiredFeatures) {
+						violations = append(violations, validationViolation("locked assignment room does not provide all required features", related, nil))
+					}
+				}
+				if hasFaculty(p, a.FacultyID) && !p.IsFacultyAvailable(a.FacultyID, slotIDs) {
+					violations = append(violations, validationViolation("locked assignment faculty is not available for all occupied time slots", related, nil))
+				}
+				if hasRoom && !p.IsRoomAvailable(a.RoomID, slotIDs) {
+					violations = append(violations, validationViolation("locked assignment room is not available for all occupied time slots", related, nil))
+				}
+			}
+		}
+	}
+
+	for reqID, count := range lockedReqCounts {
+		if req, ok := p.SessionRequirements[reqID]; ok {
+			if count > req.SessionsPerWeek {
+				violations = append(violations, validationViolation("locked sessions exceed session requirement count", map[string]string{
+					"sessionRequirementId": string(reqID),
+				}, map[string]string{
+					"lockedCount":     fmt.Sprintf("%d", count),
+					"sessionsPerWeek": fmt.Sprintf("%d", req.SessionsPerWeek),
+				}))
+			}
+		}
+	}
+
+	for i := 0; i < len(p.LockedAssignments); i++ {
+		for j := i + 1; j < len(p.LockedAssignments); j++ {
+			a1 := p.LockedAssignments[i]
+			a2 := p.LockedAssignments[j]
+			req1, ok1 := p.SessionRequirements[a1.SessionRequirementID]
+			req2, ok2 := p.SessionRequirements[a2.SessionRequirementID]
+			if !ok1 || !ok2 {
+				continue
+			}
+			slots1, fits1 := p.OccupiedSlotIDs(a1.TimeSlotID, req1.Duration)
+			slots2, fits2 := p.OccupiedSlotIDs(a2.TimeSlotID, req2.Duration)
+			if !fits1 || !fits2 || !slotsOverlap(slots1, slots2) {
+				continue
+			}
+
+			conflictRelated := map[string]string{
+				"firstAssignmentId":  string(a1.ID),
+				"secondAssignmentId": string(a2.ID),
+			}
+
+			if a1.FacultyID == a2.FacultyID && a1.FacultyID != "" {
+				conflictRelated["facultyId"] = string(a1.FacultyID)
+				violations = append(violations, validationViolation("locked assignment faculty conflict", conflictRelated, nil))
+			}
+			if a1.RoomID == a2.RoomID && a1.RoomID != "" {
+				conflictRelated["roomId"] = string(a1.RoomID)
+				violations = append(violations, validationViolation("locked assignment room conflict", conflictRelated, nil))
+			}
+			if p.StudentGroupsOverlap(a1.StudentGroupID, a2.StudentGroupID) {
+				conflictRelated["firstGroupId"] = string(a1.StudentGroupID)
+				conflictRelated["secondGroupId"] = string(a2.StudentGroupID)
+				violations = append(violations, validationViolation("locked assignment student group overlap conflict", conflictRelated, nil))
+			}
+		}
+	}
+
 	return violations
+}
+
+func slotsOverlap(left []model.TimeSlotID, right []model.TimeSlotID) bool {
+	seen := make(map[model.TimeSlotID]struct{}, len(left))
+	for _, id := range left {
+		seen[id] = struct{}{}
+	}
+	for _, id := range right {
+		if _, ok := seen[id]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func validationViolation(message string, related map[string]string, metadata map[string]string) diagnostics.Violation {
