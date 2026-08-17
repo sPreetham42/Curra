@@ -49,7 +49,7 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 	if options.SearchMode == problem.SearchModeBasic {
 		err = s.searchBasic(ctx, &p, options, decisions, 0, &solution, &diag)
 	} else {
-		domains := buildInitialDomains(&p, decisions, &solution, s.Constraints)
+		domains := buildInitialDomains(&p, decisions, &solution, s.Constraints, &diag, options.ViolationLimit)
 		err = s.searchHeuristic(ctx, &p, options, decisions, domains, make(map[int]struct{}, len(decisions)), &solution, &diag)
 	}
 	if err != nil {
@@ -216,7 +216,7 @@ func buildAssignment(current decision, value candidate) problem.Assignment {
 	}
 }
 
-func buildInitialDomains(p *problem.Problem, decisions []decision, solution *problem.Solution, checks []constraints.Constraint) map[int][]candidate {
+func buildInitialDomains(p *problem.Problem, decisions []decision, solution *problem.Solution, checks []constraints.Constraint, diag *diagnostics.Diagnostics, violationLimit int) map[int][]candidate {
 	domains := make(map[int][]candidate, len(decisions))
 	rooms := sortedRoomIDs(p)
 	slots := sortedTimeSlotIDs(p)
@@ -228,8 +228,13 @@ func buildInitialDomains(p *problem.Problem, decisions []decision, solution *pro
 					continue
 				}
 				value := candidate{RoomID: roomID, TimeSlotID: slotIDs[0]}
-				if len(constraints.CheckAll(p, solution, buildAssignment(current, value), checks)) == 0 {
+				violations := constraints.CheckAll(p, solution, buildAssignment(current, value), checks)
+				if len(violations) == 0 {
 					domains[i] = append(domains[i], value)
+				} else if diag != nil {
+					for _, violation := range violations {
+						diag.AddViolation(violationLimit, violation)
+					}
 				}
 			}
 		}

@@ -546,3 +546,51 @@ func assertNoHardConstraintViolations(t *testing.T, p problem.Problem, solution 
 		}
 	}
 }
+
+func TestHeuristicsDrivesSearch(t *testing.T) {
+	p := overlapProblem()
+	s := backtracking.New()
+
+	basicSol, basicDiag, err := s.Solve(context.Background(), p, problem.SolveOptions{SearchMode: problem.SearchModeBasic})
+	if err != nil {
+		t.Fatalf("Basic search failed: %v", err)
+	}
+	assertAllRequiredSessionsScheduled(t, p, basicSol)
+
+	heurSol, heurDiag, err := s.Solve(context.Background(), p, problem.SolveOptions{SearchMode: problem.SearchModeHeuristic})
+	if err != nil {
+		t.Fatalf("Heuristic search failed: %v", err)
+	}
+	assertAllRequiredSessionsScheduled(t, p, heurSol)
+
+	t.Logf("Basic Search: Nodes=%d, Backtracks=%d, Candidates=%d", basicDiag.NodesExplored, basicDiag.Backtracks, basicDiag.Candidates)
+	t.Logf("Heuristic Search: Nodes=%d, Backtracks=%d, Candidates=%d", heurDiag.NodesExplored, heurDiag.Backtracks, heurDiag.Candidates)
+}
+
+func BenchmarkSearchModes(b *testing.B) {
+	p := overlapProblem()
+	b.Run("Basic", func(b *testing.B) {
+		s := backtracking.New()
+		opts := problem.SolveOptions{SearchMode: problem.SearchModeBasic}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, diag, err := s.Solve(context.Background(), p, opts)
+			if err != nil {
+				b.Fatalf("Solve failed: %v", err)
+			}
+			b.ReportMetric(float64(diag.Backtracks), "backtracks/op")
+		}
+	})
+	b.Run("Heuristic", func(b *testing.B) {
+		s := backtracking.New()
+		opts := problem.SolveOptions{SearchMode: problem.SearchModeHeuristic}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, diag, err := s.Solve(context.Background(), p, opts)
+			if err != nil {
+				b.Fatalf("Solve failed: %v", err)
+			}
+			b.ReportMetric(float64(diag.Backtracks), "backtracks/op")
+		}
+	})
+}

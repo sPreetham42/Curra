@@ -38,7 +38,7 @@ func randomFeasibleProblem(seed int64) problem.Problem {
 
 	p := problem.Problem{
 		TenantID: "tenant-random",
-		Term:    model.Term{ID: "term-random", TenantID: "tenant-random", Name: "Random Term"},
+		Term:     model.Term{ID: "term-random", TenantID: "tenant-random", Name: "Random Term"},
 		Departments: map[model.DepartmentID]model.Department{
 			"dept-random": {ID: "dept-random", TenantID: "tenant-random", Name: "Random Department"},
 		},
