@@ -84,6 +84,8 @@ func (es CompileErrors) Error() string {
 }
 
 // Compile compiles constraint instances into a CompiledConstraintSet and returns (set, hash, compileErrors).
+// - p != nil: performs syntax and parameter validation and cross-validates entity references against the problem catalog.
+// - p == nil: performs syntax and parameter validation only without catalog cross-validation.
 func Compile(p *problem.Problem, instances []ConstraintInstance) (*CompiledConstraintSet, string, []CompileError) {
 	sortedInstances := make([]ConstraintInstance, len(instances))
 	copy(sortedInstances, instances)
@@ -147,6 +149,8 @@ func Compile(p *problem.Problem, instances []ConstraintInstance) (*CompiledConst
 func validateInstance(p *problem.Problem, idx int, inst ConstraintInstance) []CompileError {
 	var errs []CompileError
 
+	// Soft constraint compilation is intentionally disabled until
+	// the scoring bridge is implemented.
 	if inst.Kind == ConstraintKindSoft {
 		errs = append(errs, CompileError{
 			TemplateID:    inst.TemplateID,
@@ -155,6 +159,7 @@ func validateInstance(p *problem.Problem, idx int, inst ConstraintInstance) []Co
 			Message:       "soft constraints are not supported by the current scoring engine",
 		})
 	} else if inst.Kind != ConstraintKindHard && inst.Kind != "" {
+
 		errs = append(errs, CompileError{
 			TemplateID:    inst.TemplateID,
 			InstanceIndex: idx,

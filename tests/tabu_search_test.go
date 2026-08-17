@@ -505,3 +505,388 @@ func mediumTestProblem() problem.Problem {
 	p.Prepare()
 	return p
 }
+
+// -------------------------------------------------------------
+// Test 14: Initial solution violating compiled hard constraint is rejected before iterations begin
+// -------------------------------------------------------------
+func TestTabuSearch_InitialSolutionCompiledHardViolationRejected(t *testing.T) {
+	p := problem.Problem{
+		TenantID: "tenant-tabu-init",
+		Term:     model.Term{ID: "term-1", TenantID: "tenant-tabu-init", Name: "Term 1"},
+		Departments: map[model.DepartmentID]model.Department{
+			"dept-1": {ID: "dept-1", TenantID: "tenant-tabu-init", Name: "CS"},
+		},
+		Programs: map[model.ProgramID]model.Program{
+			"prog-1": {ID: "prog-1", DepartmentID: "dept-1", Name: "BS CS"},
+		},
+		Classes: map[model.ClassID]model.Class{
+			"class-1": {ID: "class-1", ProgramID: "prog-1", Name: "Year 1", WholeGroupID: "g1-whole", StudentGroupIDs: []model.StudentGroupID{"g1-whole"}},
+		},
+		StudentGroups: map[model.StudentGroupID]model.StudentGroup{
+			"g1-whole": {ID: "g1-whole", ClassID: "class-1", Name: "G1 Whole", Size: 30},
+		},
+		Subjects: map[model.SubjectID]model.Subject{
+			"subj-dbms": {ID: "subj-dbms", Code: "CS102", Name: "DBMS"},
+		},
+		CourseOfferings: map[model.CourseOfferingID]model.CourseOffering{
+			"co-dbms": {
+				ID:                    "co-dbms",
+				TermID:                "term-1",
+				ClassID:               "class-1",
+				SubjectID:             "subj-dbms",
+				StudentGroupID:        "g1-whole",
+				FacultyID:             "f-1",
+				SessionRequirementIDs: []model.SessionRequirementID{"req-dbms"},
+			},
+		},
+		SessionRequirements: map[model.SessionRequirementID]model.SessionRequirement{
+			"req-dbms": {ID: "req-dbms", CourseOfferingID: "co-dbms", Type: model.SessionTypeTheory, SessionsPerWeek: 2, Duration: 1},
+		},
+		Faculty: map[model.FacultyID]model.Faculty{
+			"f-1": {ID: "f-1", Name: "Prof DBMS"},
+		},
+		Rooms: map[model.RoomID]model.Room{
+			"r-1": {ID: "r-1", Name: "Room 1", Capacity: 40},
+		},
+		TimeSlots: map[model.TimeSlotID]model.TimeSlot{
+			"m-1": {ID: "m-1", Day: time.Monday, Period: 1, Label: "Mon P1"},
+			"m-2": {ID: "m-2", Day: time.Monday, Period: 2, Label: "Mon P2"},
+		},
+		PeriodsPerDay: 2,
+		FacultyAvailabilities: []model.FacultyAvailability{
+			{FacultyID: "f-1", TimeSlotID: "m-1"}, {FacultyID: "f-1", TimeSlotID: "m-2"},
+		},
+		RoomAvailabilities: []model.RoomAvailability{
+			{RoomID: "r-1", TimeSlotID: "m-1"}, {RoomID: "r-1", TimeSlotID: "m-2"},
+		},
+	}
+	p.Prepare()
+
+	// Initial solution has both DBMS sessions on Monday (satisfies legacy constraints, but violates maxPerDay: 1)
+	sol := problem.NewSolution()
+	_ = sol.AddAssignment(&p, problem.Assignment{
+		ID:                   "req-dbms#0",
+		CourseOfferingID:     "co-dbms",
+		StudentGroupID:       "g1-whole",
+		FacultyID:            "f-1",
+		RoomID:               "r-1",
+		TimeSlotID:           "m-1",
+		SessionRequirementID: "req-dbms",
+		Instance:             0,
+	})
+	_ = sol.AddAssignment(&p, problem.Assignment{
+		ID:                   "req-dbms#1",
+		CourseOfferingID:     "co-dbms",
+		StudentGroupID:       "g1-whole",
+		FacultyID:            "f-1",
+		RoomID:               "r-1",
+		TimeSlotID:           "m-2",
+		SessionRequirementID: "req-dbms",
+		Instance:             1,
+	})
+
+	inst := constraints.ConstraintInstance{
+		ID:         "rule-dbms-max1",
+		TemplateID: "SubjectMaxPerDay",
+		Params:     map[string]any{"subjectId": "subj-dbms", "maxPerDay": 1},
+		Kind:       constraints.ConstraintKindHard,
+	}
+	compiledSet, _, errs := constraints.Compile(&p, []constraints.ConstraintInstance{inst})
+	if len(errs) > 0 {
+		t.Fatalf("compile error: %v", errs)
+	}
+
+	opts := localsearch.TabuSearchOptions{
+		MaxIterations: 100,
+		Compiled:      compiledSet,
+	}
+
+	_, diag, err := localsearch.TabuSearch(context.Background(), &p, sol, opts)
+	if err != localsearch.ErrInitialSolutionInfeasible {
+		t.Fatalf("expected ErrInitialSolutionInfeasible, got: %v", err)
+	}
+	if diag.Status != diagnostics.SolveStatusInfeasible {
+		t.Fatalf("expected status INFEASIBLE, got: %s", diag.Status)
+	}
+	if diag.Iterations != 0 {
+		t.Fatalf("expected 0 iterations before rejection, got: %d", diag.Iterations)
+	}
+	if len(diag.Violations) == 0 {
+		t.Fatal("expected diagnostics to contain violations")
+	}
+	foundCompiled := false
+	for _, v := range diag.Violations {
+		if v.ConstraintID == "rule-dbms-max1" && v.TemplateID == "SubjectMaxPerDay" {
+			foundCompiled = true
+			break
+		}
+	}
+	if !foundCompiled {
+		t.Fatalf("expected compiled violation with ID rule-dbms-max1, got: %+v", diag.Violations)
+	}
+}
+
+// -------------------------------------------------------------
+// Test 15: Move-level compiled hard constraint enforcement in Tabu
+// -------------------------------------------------------------
+func TestTabuSearch_MoveLevelCompiledHardEnforcement(t *testing.T) {
+	p := problem.Problem{
+		TenantID: "tenant-tabu-move",
+		Term:     model.Term{ID: "term-1", TenantID: "tenant-tabu-move", Name: "Term 1"},
+		Departments: map[model.DepartmentID]model.Department{
+			"dept-1": {ID: "dept-1", TenantID: "tenant-tabu-move", Name: "CS"},
+		},
+		Programs: map[model.ProgramID]model.Program{
+			"prog-1": {ID: "prog-1", DepartmentID: "dept-1", Name: "BS CS"},
+		},
+		Classes: map[model.ClassID]model.Class{
+			"class-1": {ID: "class-1", ProgramID: "prog-1", Name: "Year 1", WholeGroupID: "g1-whole", StudentGroupIDs: []model.StudentGroupID{"g1-whole"}},
+		},
+		StudentGroups: map[model.StudentGroupID]model.StudentGroup{
+			"g1-whole": {ID: "g1-whole", ClassID: "class-1", Name: "G1 Whole", Size: 30},
+		},
+		Subjects: map[model.SubjectID]model.Subject{
+			"subj-dbms": {ID: "subj-dbms", Code: "CS102", Name: "DBMS"},
+			"subj-math": {ID: "subj-math", Code: "MA101", Name: "Math"},
+		},
+		CourseOfferings: map[model.CourseOfferingID]model.CourseOffering{
+			"co-dbms": {
+				ID:                    "co-dbms",
+				TermID:                "term-1",
+				ClassID:               "class-1",
+				SubjectID:             "subj-dbms",
+				StudentGroupID:        "g1-whole",
+				FacultyID:             "f-1",
+				SessionRequirementIDs: []model.SessionRequirementID{"req-dbms"},
+			},
+			"co-math": {
+				ID:                    "co-math",
+				TermID:                "term-1",
+				ClassID:               "class-1",
+				SubjectID:             "subj-math",
+				StudentGroupID:        "g1-whole",
+				FacultyID:             "f-2",
+				SessionRequirementIDs: []model.SessionRequirementID{"req-math"},
+			},
+		},
+		SessionRequirements: map[model.SessionRequirementID]model.SessionRequirement{
+			"req-dbms": {ID: "req-dbms", CourseOfferingID: "co-dbms", Type: model.SessionTypeTheory, SessionsPerWeek: 2, Duration: 1},
+			"req-math": {ID: "req-math", CourseOfferingID: "co-math", Type: model.SessionTypeTheory, SessionsPerWeek: 1, Duration: 1},
+		},
+		Faculty: map[model.FacultyID]model.Faculty{
+			"f-1": {ID: "f-1", Name: "Prof DBMS"},
+			"f-2": {ID: "f-2", Name: "Prof Math"},
+		},
+		Rooms: map[model.RoomID]model.Room{
+			"r-1": {ID: "r-1", Name: "Room 1", Capacity: 40},
+		},
+		TimeSlots: map[model.TimeSlotID]model.TimeSlot{
+			"m-1": {ID: "m-1", Day: time.Monday, Period: 1, Label: "Mon P1"},
+			"m-2": {ID: "m-2", Day: time.Monday, Period: 2, Label: "Mon P2"},
+			"m-3": {ID: "m-3", Day: time.Monday, Period: 3, Label: "Mon P3"},
+			"t-1": {ID: "t-1", Day: time.Tuesday, Period: 1, Label: "Tue P1"},
+			"t-2": {ID: "t-2", Day: time.Tuesday, Period: 2, Label: "Tue P2"},
+			"t-3": {ID: "t-3", Day: time.Tuesday, Period: 3, Label: "Tue P3"},
+		},
+		PeriodsPerDay: 3,
+		FacultyAvailabilities: []model.FacultyAvailability{
+			{FacultyID: "f-1", TimeSlotID: "m-1"}, {FacultyID: "f-1", TimeSlotID: "m-2"}, {FacultyID: "f-1", TimeSlotID: "m-3"}, {FacultyID: "f-1", TimeSlotID: "t-1"}, {FacultyID: "f-1", TimeSlotID: "t-2"}, {FacultyID: "f-1", TimeSlotID: "t-3"},
+			{FacultyID: "f-2", TimeSlotID: "m-1"}, {FacultyID: "f-2", TimeSlotID: "m-2"}, {FacultyID: "f-2", TimeSlotID: "m-3"}, {FacultyID: "f-2", TimeSlotID: "t-1"}, {FacultyID: "f-2", TimeSlotID: "t-2"}, {FacultyID: "f-2", TimeSlotID: "t-3"},
+		},
+		RoomAvailabilities: []model.RoomAvailability{
+			{RoomID: "r-1", TimeSlotID: "m-1"}, {RoomID: "r-1", TimeSlotID: "m-2"}, {RoomID: "r-1", TimeSlotID: "m-3"}, {RoomID: "r-1", TimeSlotID: "t-1"}, {RoomID: "r-1", TimeSlotID: "t-2"}, {RoomID: "r-1", TimeSlotID: "t-3"},
+		},
+	}
+	p.Prepare()
+
+	// Initial feasible solution:
+	// DBMS#0 on Monday P1 (m-1)
+	// Math#0 on Monday P3 (m-3) -> creates a gap at P2 (m-2) on Monday!
+	// DBMS#1 on Tuesday P1 (t-1)
+	// (Satisfies max 1 DBMS per day!)
+	sol := problem.NewSolution()
+	_ = sol.AddAssignment(&p, problem.Assignment{
+		ID:                   "req-dbms#0",
+		CourseOfferingID:     "co-dbms",
+		StudentGroupID:       "g1-whole",
+		FacultyID:            "f-1",
+		RoomID:               "r-1",
+		TimeSlotID:           "m-1",
+		SessionRequirementID: "req-dbms",
+		Instance:             0,
+	})
+	_ = sol.AddAssignment(&p, problem.Assignment{
+		ID:                   "req-math#0",
+		CourseOfferingID:     "co-math",
+		StudentGroupID:       "g1-whole",
+		FacultyID:            "f-2",
+		RoomID:               "r-1",
+		TimeSlotID:           "m-3",
+		SessionRequirementID: "req-math",
+		Instance:             0,
+	})
+	_ = sol.AddAssignment(&p, problem.Assignment{
+		ID:                   "req-dbms#1",
+		CourseOfferingID:     "co-dbms",
+		StudentGroupID:       "g1-whole",
+		FacultyID:            "f-1",
+		RoomID:               "r-1",
+		TimeSlotID:           "t-1",
+		SessionRequirementID: "req-dbms",
+		Instance:             1,
+	})
+
+	inst := constraints.ConstraintInstance{
+		ID:         "rule-dbms-max1",
+		TemplateID: "SubjectMaxPerDay",
+		Params:     map[string]any{"subjectId": "subj-dbms", "maxPerDay": 1},
+		Kind:       constraints.ConstraintKindHard,
+	}
+	compiledSet, _, errs := constraints.Compile(&p, []constraints.ConstraintInstance{inst})
+	if len(errs) > 0 {
+		t.Fatalf("compile error: %v", errs)
+	}
+
+	opts := localsearch.TabuSearchOptions{
+		MaxIterations: 50,
+		TabuTenure:    5,
+		MaxCandidates: 50,
+		Seed:          42,
+		Compiled:      compiledSet,
+	}
+
+	bestSol, diag, err := localsearch.TabuSearch(context.Background(), &p, sol, opts)
+	if err != nil {
+		t.Fatalf("TabuSearch error: %v", err)
+	}
+	if diag.Status != diagnostics.SolveStatusSolved {
+		t.Fatalf("expected status SOLVED, got %s", diag.Status)
+	}
+	if bestSol.Score.HardViolations != 0 {
+		t.Fatalf("expected 0 hard violations, got: %d", bestSol.Score.HardViolations)
+	}
+
+	// Verify that the final solution never violates the compiled SubjectMaxPerDay rule on any day
+	dbmsCountByDay := make(map[time.Weekday]int)
+	for _, a := range bestSol.Assignments {
+		if a.CourseOfferingID == "co-dbms" {
+			slot := p.TimeSlots[a.TimeSlotID]
+			dbmsCountByDay[slot.Day]++
+		}
+	}
+	for day, count := range dbmsCountByDay {
+		if count > 1 {
+			t.Fatalf("expected at most 1 DBMS session on day %v, got %d", day, count)
+		}
+	}
+}
+
+// -------------------------------------------------------------
+// Test 16: CSP -> Tabu full pipeline compatibility with compiled constraints
+// -------------------------------------------------------------
+func TestCSPToTabu_CompiledConstraintEnforcement(t *testing.T) {
+	p := problem.Problem{
+		TenantID: "tenant-csp-tabu",
+		Term:     model.Term{ID: "term-1", TenantID: "tenant-csp-tabu", Name: "Term 1"},
+		Departments: map[model.DepartmentID]model.Department{
+			"dept-1": {ID: "dept-1", TenantID: "tenant-csp-tabu", Name: "CS"},
+		},
+		Programs: map[model.ProgramID]model.Program{
+			"prog-1": {ID: "prog-1", DepartmentID: "dept-1", Name: "BS CS"},
+		},
+		Classes: map[model.ClassID]model.Class{
+			"class-1": {ID: "class-1", ProgramID: "prog-1", Name: "Year 1", WholeGroupID: "g1-whole", StudentGroupIDs: []model.StudentGroupID{"g1-whole"}},
+		},
+		StudentGroups: map[model.StudentGroupID]model.StudentGroup{
+			"g1-whole": {ID: "g1-whole", ClassID: "class-1", Name: "G1 Whole", Size: 30},
+		},
+		Subjects: map[model.SubjectID]model.Subject{
+			"subj-cs": {ID: "subj-cs", Code: "CS101", Name: "Computer Science"},
+		},
+		CourseOfferings: map[model.CourseOfferingID]model.CourseOffering{
+			"co-cs": {
+				ID:                    "co-cs",
+				TermID:                "term-1",
+				ClassID:               "class-1",
+				SubjectID:             "subj-cs",
+				StudentGroupID:        "g1-whole",
+				FacultyID:             "f-1",
+				SessionRequirementIDs: []model.SessionRequirementID{"req-cs"},
+			},
+		},
+		SessionRequirements: map[model.SessionRequirementID]model.SessionRequirement{
+			"req-cs": {ID: "req-cs", CourseOfferingID: "co-cs", Type: model.SessionTypeTheory, SessionsPerWeek: 2, Duration: 1},
+		},
+		Faculty: map[model.FacultyID]model.Faculty{
+			"f-1": {ID: "f-1", Name: "Prof CS"},
+		},
+		Rooms: map[model.RoomID]model.Room{
+			"r-1": {ID: "r-1", Name: "Room 1", Capacity: 40},
+		},
+		TimeSlots: map[model.TimeSlotID]model.TimeSlot{
+			"m-1": {ID: "m-1", Day: time.Monday, Period: 1, Label: "Mon P1"},
+			"m-2": {ID: "m-2", Day: time.Monday, Period: 2, Label: "Mon P2"},
+			"t-1": {ID: "t-1", Day: time.Tuesday, Period: 1, Label: "Tue P1"},
+			"t-2": {ID: "t-2", Day: time.Tuesday, Period: 2, Label: "Tue P2"},
+		},
+		PeriodsPerDay: 2,
+		FacultyAvailabilities: []model.FacultyAvailability{
+			{FacultyID: "f-1", TimeSlotID: "m-1"}, {FacultyID: "f-1", TimeSlotID: "m-2"}, {FacultyID: "f-1", TimeSlotID: "t-1"}, {FacultyID: "f-1", TimeSlotID: "t-2"},
+		},
+		RoomAvailabilities: []model.RoomAvailability{
+			{RoomID: "r-1", TimeSlotID: "m-1"}, {RoomID: "r-1", TimeSlotID: "m-2"}, {RoomID: "r-1", TimeSlotID: "t-1"}, {RoomID: "r-1", TimeSlotID: "t-2"},
+		},
+	}
+	p.Prepare()
+
+	inst := constraints.ConstraintInstance{
+		ID:         "rule-cs-max1",
+		TemplateID: "SubjectMaxPerDay",
+		Params:     map[string]any{"subjectId": "subj-cs", "maxPerDay": 1},
+		Kind:       constraints.ConstraintKindHard,
+	}
+	compiledSet, _, errs := constraints.Compile(&p, []constraints.ConstraintInstance{inst})
+	if len(errs) > 0 {
+		t.Fatalf("compile error: %v", errs)
+	}
+
+	// 1. Solve with CSP solver compiled with compiledSet
+	solver := backtracking.NewWithCompiled(compiledSet)
+	cspSol, cspDiag, err := solver.Solve(context.Background(), p, problem.SolveOptions{MaxNodes: 10000})
+	if err != nil || cspDiag.Status != diagnostics.SolveStatusSolved {
+		t.Fatalf("CSP solve failed: status=%s err=%v", cspDiag.Status, err)
+	}
+
+	// 2. Pass CSP solution directly to TabuSearch with compiledSet
+	tabuOpts := localsearch.TabuSearchOptions{
+		MaxIterations: 30,
+		TabuTenure:    3,
+		MaxCandidates: 20,
+		Seed:          999,
+		Compiled:      compiledSet,
+	}
+	tabuSol, tabuDiag, err := localsearch.TabuSearch(context.Background(), &p, cspSol, tabuOpts)
+	if err != nil {
+		t.Fatalf("TabuSearch error: %v", err)
+	}
+	if tabuDiag.Status != diagnostics.SolveStatusSolved {
+		t.Fatalf("expected Tabu status SOLVED, got %s", tabuDiag.Status)
+	}
+	if tabuSol.Score.HardViolations != 0 {
+		t.Fatalf("expected 0 hard violations in Tabu solution, got %d", tabuSol.Score.HardViolations)
+	}
+
+	// Confirm compiled rule is satisfied on final solution
+	csCountByDay := make(map[time.Weekday]int)
+	for _, a := range tabuSol.Assignments {
+		if a.CourseOfferingID == "co-cs" {
+			slot := p.TimeSlots[a.TimeSlotID]
+			csCountByDay[slot.Day]++
+		}
+	}
+	for day, count := range csCountByDay {
+		if count > 1 {
+			t.Fatalf("expected at most 1 CS session on %v, got %d", day, count)
+		}
+	}
+}

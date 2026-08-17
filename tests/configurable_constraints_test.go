@@ -594,6 +594,44 @@ func TestCompile_SoftConstraintsRejected(t *testing.T) {
 	}
 }
 
+func TestCompile_Atomicity(t *testing.T) {
+	p := problem.Problem{
+		TenantID: "tenant-val",
+		Term:     model.Term{ID: "term-1", TenantID: "tenant-val", Name: "Term 1"},
+		Subjects: map[model.SubjectID]model.Subject{
+			"subj-exist": {ID: "subj-exist", Code: "S1", Name: "Existing Subject"},
+		},
+	}
+	p.Prepare()
+
+	validInst := constraints.ConstraintInstance{
+		ID:         "r-valid",
+		TemplateID: "SubjectMaxPerDay",
+		Params:     map[string]any{"subjectId": "subj-exist", "maxPerDay": 2},
+		Kind:       constraints.ConstraintKindHard,
+	}
+
+	invalidInst := constraints.ConstraintInstance{
+		ID:         "r-invalid",
+		TemplateID: "SubjectMaxPerDay",
+		Params:     map[string]any{"subjectId": "subj-nonexistent", "maxPerDay": 2},
+		Kind:       constraints.ConstraintKindHard,
+	}
+
+	// Mixed batch: 1 valid, 1 invalid
+	compiledSet, hash, errs := constraints.Compile(&p, []constraints.ConstraintInstance{validInst, invalidInst})
+
+	if len(errs) == 0 {
+		t.Fatal("expected compile errors for batch containing invalid instance")
+	}
+	if compiledSet != nil {
+		t.Fatalf("expected compiledSet to be nil on compile errors, got: %+v", compiledSet)
+	}
+	if hash != "" {
+		t.Fatalf("expected hash to be empty string on compile errors, got: %s", hash)
+	}
+}
+
 func containsField(errs []constraints.CompileError, field string) bool {
 	for _, e := range errs {
 		if e.Field == field {
