@@ -9,10 +9,18 @@ import (
 // MoveValidator checks whether an applied move satisfies all hard constraints.
 type MoveValidator struct {
 	Validators []constraints.ScopedValidator
+	Compiled   *constraints.CompiledConstraintSet
 }
 
 func NewMoveValidator() MoveValidator {
 	return MoveValidator{Validators: constraints.DefaultScopedValidators()}
+}
+
+func NewCompiledMoveValidator(compiled *constraints.CompiledConstraintSet) MoveValidator {
+	return MoveValidator{
+		Validators: constraints.DefaultScopedValidators(),
+		Compiled:   compiled,
+	}
 }
 
 // Validate checks all scoped hard constraints on the moved assignment.
@@ -44,5 +52,16 @@ func (v MoveValidator) Validate(p *problem.Problem, solution *problem.Solution, 
 	for _, validator := range v.Validators {
 		violations = append(violations, validator.Check(p, solution, assignment)...)
 	}
+
+	if v.Compiled != nil && len(v.Compiled.Hard) > 0 {
+		ctx := constraints.NewSearchCtx(p)
+		if err := solution.UndoMove(p, move); err == nil {
+			for _, c := range v.Compiled.Hard {
+				violations = append(violations, c.ViolatedByMove(ctx, solution, move)...)
+			}
+			_ = solution.ApplyMove(p, move)
+		}
+	}
+
 	return violations
 }

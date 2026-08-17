@@ -22,6 +22,9 @@ const (
 // Violation explains why a candidate assignment or whole problem is invalid.
 type Violation struct {
 	ConstraintName string            `json:"constraintName"`
+	ConstraintID   string            `json:"constraintId,omitempty"`
+	TemplateID     string            `json:"templateId,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
 	Severity       Severity          `json:"severity"`
 	Message        string            `json:"message"`
 	AssignmentID   string            `json:"assignmentId,omitempty"`

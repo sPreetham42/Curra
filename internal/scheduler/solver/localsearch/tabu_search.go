@@ -55,7 +55,6 @@ func TabuSearch(ctx context.Context, p *problem.Problem, initialSolution problem
 		}
 	}
 
-
 	// 2. Set option defaults
 	if opts.MaxIterations <= 0 {
 		opts.MaxIterations = 1000

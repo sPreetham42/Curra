@@ -21,10 +21,18 @@ var (
 
 type Solver struct {
 	Constraints []constraints.Constraint
+	Compiled    *constraints.CompiledConstraintSet
 }
 
 func New() *Solver {
 	return &Solver{Constraints: constraints.DefaultHardConstraints()}
+}
+
+func NewWithCompiled(compiled *constraints.CompiledConstraintSet) *Solver {
+	return &Solver{
+		Constraints: constraints.DefaultHardConstraints(),
+		Compiled:    compiled,
+	}
 }
 
 func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.SolveOptions) (problem.Solution, diagnostics.Diagnostics, error) {
@@ -61,6 +69,7 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 		domains := buildInitialDomains(&p, decisions, &solution, s.Constraints, &diag, options.ViolationLimit)
 		err = s.searchHeuristic(ctx, &p, options, decisions, domains, make(map[int]struct{}, len(decisions)), &solution, &diag)
 	}
+
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNoSolution):
@@ -76,10 +85,38 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 			diag.Status = diagnostics.SolveStatusDeadlineExceeded
 			diag.Message = context.DeadlineExceeded.Error()
 		}
-		return problem.Solution{}, diag, err
+		solution.Score.HardViolations = len(diag.Violations)
+		return solution, diag, err
 	}
 
+	return s.ValidateSolution(ctx, p, solution)
+}
+
+// ValidateSolution executes the final compiled HARD constraint evaluation pipeline on a solution.
+func (s *Solver) ValidateSolution(ctx context.Context, p problem.Problem, solution problem.Solution) (problem.Solution, diagnostics.Diagnostics, error) {
+	diag := diagnostics.Diagnostics{}
 	breakdown := p.StudentGapPenalty(&solution)
+
+	if s.Compiled != nil && len(s.Compiled.Hard) > 0 {
+		searchCtx := constraints.NewSearchCtx(&p)
+		var hardViolations []diagnostics.Violation
+		for _, c := range s.Compiled.Hard {
+			hardViolations = append(hardViolations, c.Evaluate(searchCtx, &solution)...)
+		}
+
+		if len(hardViolations) > 0 {
+			solution.Score = scorer.Score{
+				HardViolations: len(hardViolations),
+				SoftPenalty:    breakdown.SoftPenalty,
+				Breakdown:      breakdown,
+			}
+			diag.Status = diagnostics.SolveStatusInfeasible
+			diag.Violations = hardViolations
+			diag.Message = ErrNoSolution.Error()
+			return solution, diag, ErrNoSolution
+		}
+	}
+
 	solution.Score = scorer.Score{
 		HardViolations: 0,
 		SoftPenalty:    breakdown.SoftPenalty,
@@ -135,9 +172,27 @@ func (s *Solver) searchBasic(ctx context.Context, p *problem.Problem, options pr
 				continue
 			}
 
+			if s.Compiled != nil && len(s.Compiled.Hard) > 0 {
+				searchCtx := constraints.NewSearchCtx(p)
+				inconsistent := false
+				for _, c := range s.Compiled.Hard {
+					if !c.IsConsistent(searchCtx, solution, assignment) {
+						inconsistent = true
+						for _, v := range c.ViolatedByMove(searchCtx, solution, problem.Move{AssignmentID: assignment.ID, To: problem.Placement{RoomID: assignment.RoomID, TimeSlotID: assignment.TimeSlotID}}) {
+							diag.AddViolation(options.ViolationLimit, v)
+						}
+						break
+					}
+				}
+				if inconsistent {
+					continue
+				}
+			}
+
 			if err := solution.AddAssignment(p, assignment); err != nil {
 				return fmt.Errorf("index assignment: %w", err)
 			}
+
 			if err := s.searchBasic(ctx, p, options, decisions, position+1, solution, diag); err == nil {
 				return nil
 			} else if !errors.Is(err, ErrNoSolution) {
@@ -185,6 +240,24 @@ func (s *Solver) searchHeuristic(ctx context.Context, p *problem.Problem, option
 			}
 			continue
 		}
+
+		if s.Compiled != nil && len(s.Compiled.Hard) > 0 {
+			searchCtx := constraints.NewSearchCtx(p)
+			inconsistent := false
+			for _, c := range s.Compiled.Hard {
+				if !c.IsConsistent(searchCtx, solution, assignment) {
+					inconsistent = true
+					for _, v := range c.ViolatedByMove(searchCtx, solution, problem.Move{AssignmentID: assignment.ID, To: problem.Placement{RoomID: assignment.RoomID, TimeSlotID: assignment.TimeSlotID}}) {
+						diag.AddViolation(options.ViolationLimit, v)
+					}
+					break
+				}
+			}
+			if inconsistent {
+				continue
+			}
+		}
+
 		if err := solution.AddAssignment(p, assignment); err != nil {
 			return fmt.Errorf("index assignment: %w", err)
 		}
@@ -236,6 +309,7 @@ func buildInitialDomains(p *problem.Problem, decisions []decision, solution *pro
 	domains := make(map[int][]candidate, len(decisions))
 	rooms := sortedRoomIDs(p)
 	slots := sortedTimeSlotIDs(p)
+
 	for i, current := range decisions {
 		for _, roomID := range rooms {
 			for _, slotID := range slots {
@@ -244,7 +318,8 @@ func buildInitialDomains(p *problem.Problem, decisions []decision, solution *pro
 					continue
 				}
 				value := candidate{RoomID: roomID, TimeSlotID: slotIDs[0]}
-				violations := constraints.CheckAll(p, solution, buildAssignment(current, value), checks)
+				a := buildAssignment(current, value)
+				violations := constraints.CheckAll(p, solution, a, checks)
 				if len(violations) == 0 {
 					domains[i] = append(domains[i], value)
 				} else if diag != nil {

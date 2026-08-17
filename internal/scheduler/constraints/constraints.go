@@ -53,29 +53,6 @@ func CheckAll(p *problem.Problem, solution *problem.Solution, assignment problem
 	return violations
 }
 
-type FacultyConflict struct{}
-
-func (FacultyConflict) Name() string { return "FacultyConflict" }
-
-func (c FacultyConflict) Check(p *problem.Problem, solution *problem.Solution, assignment problem.Assignment) []diagnostics.Violation {
-	slotIDs, ok := assignment.OccupiedSlotIDs(p)
-	if !ok {
-		return invalidDurationViolation(c.Name(), assignment)
-	}
-	if conflictingID, ok := solution.Index.FacultyConflict(assignment.FacultyID, slotIDs); ok && conflictingID != assignment.ID {
-		return []diagnostics.Violation{baseViolation(c.Name(), assignment, "faculty is already scheduled in an occupied time slot", map[string]string{
-			"facultyId":               string(assignment.FacultyID),
-			"conflictingAssignmentId": string(conflictingID),
-		}, nil)}
-	}
-	return nil
-}
-
-func (c FacultyConflict) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
-	a.TimeSlotID = slot
-	return c.Check(p, solution, a)
-}
-
 type RoomConflict struct{}
 
 func (RoomConflict) Name() string { return "RoomConflict" }
