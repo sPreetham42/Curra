@@ -14,6 +14,51 @@ const validationConstraint = "ProblemValidation"
 func Validate(p Problem) []diagnostics.Violation {
 	var violations []diagnostics.Violation
 
+	if p.TenantID == "" {
+		violations = append(violations, validationViolation("problem has empty tenant ID", nil, nil))
+	}
+	if p.PeriodsPerDay <= 0 {
+		violations = append(violations, validationViolation("problem has non-positive periods per day", nil, map[string]string{"periodsPerDay": fmt.Sprintf("%d", p.PeriodsPerDay)}))
+	}
+
+	for _, id := range sortedDepartmentIDs(p.Departments) {
+		dept := p.Departments[id]
+		if dept.ID == "" {
+			violations = append(violations, validationViolation("department has empty ID", map[string]string{"departmentMapKey": string(id)}, nil))
+		}
+	}
+
+	for _, id := range sortedProgramIDs(p.Programs) {
+		prog := p.Programs[id]
+		if prog.ID == "" {
+			violations = append(violations, validationViolation("program has empty ID", map[string]string{"programMapKey": string(id)}, nil))
+		}
+		if prog.DepartmentID == "" || !hasDepartment(p, prog.DepartmentID) {
+			violations = append(violations, validationViolation("program references missing department", map[string]string{"programId": string(id), "departmentId": string(prog.DepartmentID)}, nil))
+		}
+	}
+
+	for _, id := range sortedFacultyIDs(p.Faculty) {
+		f := p.Faculty[id]
+		if f.ID == "" {
+			violations = append(violations, validationViolation("faculty has empty ID", map[string]string{"facultyMapKey": string(id)}, nil))
+		}
+	}
+
+	for _, id := range sortedSubjectIDs(p.Subjects) {
+		subj := p.Subjects[id]
+		if subj.ID == "" {
+			violations = append(violations, validationViolation("subject has empty ID", map[string]string{"subjectMapKey": string(id)}, nil))
+		}
+	}
+
+	for _, id := range sortedRoomFeatureIDs(p.RoomFeatures) {
+		feat := p.RoomFeatures[id]
+		if feat.ID == "" {
+			violations = append(violations, validationViolation("room feature has empty ID", map[string]string{"roomFeatureMapKey": string(id)}, nil))
+		}
+	}
+
 	for _, id := range sortedClassIDs(p.Classes) {
 		class := p.Classes[id]
 		if class.ID == "" {
@@ -149,6 +194,13 @@ func Validate(p Problem) []diagnostics.Violation {
 		}
 		if requirement.Duration <= 0 {
 			violations = append(violations, validationViolation("session requirement has non-positive duration", map[string]string{"sessionRequirementId": string(id)}, map[string]string{"duration": fmt.Sprintf("%d", requirement.Duration)}))
+		} else if p.PeriodsPerDay > 0 && requirement.Duration > p.PeriodsPerDay {
+			violations = append(violations, validationViolation("session requirement duration exceeds periods per day", map[string]string{
+				"sessionRequirementId": string(id),
+			}, map[string]string{
+				"duration":      fmt.Sprintf("%d", requirement.Duration),
+				"periodsPerDay": fmt.Sprintf("%d", p.PeriodsPerDay),
+			}))
 		}
 		if requirement.Type != model.SessionTypeTheory && requirement.Type != model.SessionTypeLab {
 			violations = append(violations, validationViolation("session requirement has invalid type", map[string]string{"sessionRequirementId": string(id)}, map[string]string{"type": string(requirement.Type)}))
@@ -434,6 +486,11 @@ func classContainsListedGroup(class model.Class, groupID model.StudentGroupID) b
 	return false
 }
 
+func hasDepartment(p Problem, id model.DepartmentID) bool {
+	_, ok := p.Departments[id]
+	return ok
+}
+
 func hasProgram(p Problem, id model.ProgramID) bool {
 	_, ok := p.Programs[id]
 	return ok
@@ -477,6 +534,51 @@ func hasRoomFeature(p Problem, id model.RoomFeatureID) bool {
 func hasTimeSlot(p Problem, id model.TimeSlotID) bool {
 	_, ok := p.TimeSlots[id]
 	return ok
+}
+
+func sortedDepartmentIDs(values map[model.DepartmentID]model.Department) []model.DepartmentID {
+	ids := make([]model.DepartmentID, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func sortedProgramIDs(values map[model.ProgramID]model.Program) []model.ProgramID {
+	ids := make([]model.ProgramID, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func sortedFacultyIDs(values map[model.FacultyID]model.Faculty) []model.FacultyID {
+	ids := make([]model.FacultyID, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func sortedSubjectIDs(values map[model.SubjectID]model.Subject) []model.SubjectID {
+	ids := make([]model.SubjectID, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func sortedRoomFeatureIDs(values map[model.RoomFeatureID]model.RoomFeature) []model.RoomFeatureID {
+	ids := make([]model.RoomFeatureID, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }
 
 func sortedClassIDs(values map[model.ClassID]model.Class) []model.ClassID {

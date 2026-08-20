@@ -25,6 +25,7 @@ type TabuSearchOptions struct {
 	MaxCandidates      int                                `json:"maxCandidates"`
 	Seed               int64                              `json:"seed"`
 	Compiled           *constraints.CompiledConstraintSet `json:"-"`
+	ObjectiveConfig    *scorer.ObjectiveConfig            `json:"objectiveConfig,omitempty"`
 }
 
 // TabuDiagnostics holds performance and execution metrics.
@@ -97,8 +98,6 @@ func (s *TabuSearcher) Search(ctx context.Context, p *problem.Problem, initialSo
 	} else {
 		validator = NewMoveValidator()
 	}
-	evaluator := FullScoreEvaluator{}
-
 	// 3. Set option defaults
 	if opts.MaxIterations <= 0 {
 		opts.MaxIterations = 1000
@@ -119,8 +118,14 @@ func (s *TabuSearcher) Search(ctx context.Context, p *problem.Problem, initialSo
 	rng := rand.New(rand.NewSource(opts.Seed))
 	startTime := time.Now()
 
+	objConfig := scorer.DefaultObjectiveConfig()
+	if opts.ObjectiveConfig != nil {
+		objConfig = *opts.ObjectiveConfig
+	}
+
 	currentSolution := initialSolution.Clone()
-	initialScore := evaluator.Evaluate(p, &currentSolution)
+	incEvaluator := NewIncrementalScoreEvaluatorWithConfig(p, &currentSolution, objConfig)
+	initialScore := incEvaluator.Evaluate(p, &currentSolution)
 	currentScore := initialScore
 
 	bestSolution := currentSolution.Clone()
@@ -140,11 +145,13 @@ func (s *TabuSearcher) Search(ctx context.Context, p *problem.Problem, initialSo
 		select {
 		case <-ctx.Done():
 			diag.Duration = time.Since(startTime)
-			sol, d, err := finalizeSolution(p, &bestSolution, bestScore, s.Compiled, &diag)
-			if err == nil {
+			sol, d, _ := finalizeSolution(p, &bestSolution, bestScore, s.Compiled, &diag)
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				d.Status = diagnostics.SolveStatusDeadlineExceeded
+			} else {
 				d.Status = diagnostics.SolveStatusCancelled
 			}
-			return sol, d, err
+			return sol, d, nil
 		default:
 		}
 
@@ -167,7 +174,7 @@ func (s *TabuSearcher) Search(ctx context.Context, p *problem.Problem, initialSo
 
 		for i := range candidates {
 			cm := candidates[i]
-			res, err := EvaluateCandidateMove(p, &currentSolution, cm, validator, evaluator)
+			res, err := EvaluateCandidateMove(p, &currentSolution, cm, validator, incEvaluator)
 			if err != nil || !res.Legal {
 				diag.IllegalMoves++
 				continue
@@ -177,7 +184,7 @@ func (s *TabuSearcher) Search(ctx context.Context, p *problem.Problem, initialSo
 			isTabu := tabuList.IsTabu(cm.Signature(), iteration)
 
 			// Aspiration: allowed if it produces a solution better than global best score
-			if isTabu && res.Score.StudentGapPenalty < bestScore.StudentGapPenalty {
+			if isTabu && res.Score.SoftPenalty < bestScore.SoftPenalty {
 				isTabu = false
 			}
 
@@ -186,7 +193,7 @@ func (s *TabuSearcher) Search(ctx context.Context, p *problem.Problem, initialSo
 				continue
 			}
 
-			if !foundAdmissible || res.Score.StudentGapPenalty < bestAdmissibleResult.Score.StudentGapPenalty {
+			if !foundAdmissible || res.Score.SoftPenalty < bestAdmissibleResult.Score.SoftPenalty {
 				foundAdmissible = true
 				bestAdmissibleCandidate = &candidates[i]
 				bestAdmissibleResult = res
@@ -199,12 +206,13 @@ func (s *TabuSearcher) Search(ctx context.Context, p *problem.Problem, initialSo
 		}
 
 		_ = ApplyCandidateMove(p, &currentSolution, *bestAdmissibleCandidate)
+		incEvaluator.ApplyCandidateMove(p, &currentSolution, *bestAdmissibleCandidate)
 		currentScore = bestAdmissibleResult.Score
 		diag.AcceptedMoves++
 
 		tabuList.Record(bestAdmissibleCandidate.ReverseSignature(), iteration)
 
-		if currentScore.StudentGapPenalty < bestScore.StudentGapPenalty {
+		if currentScore.SoftPenalty < bestScore.SoftPenalty {
 			bestScore = currentScore
 			bestSolution = currentSolution.Clone()
 			noImprovementCount = 0
@@ -236,7 +244,7 @@ func finalizeSolution(p *problem.Problem, bestSolution *problem.Solution, bestSc
 	if len(hardViolations) > 0 {
 		bestSolution.Score = scorer.Score{
 			HardViolations: len(hardViolations),
-			SoftPenalty:    bestScore.StudentGapPenalty,
+			SoftPenalty:    bestScore.SoftPenalty,
 			Breakdown:      bestScore,
 		}
 		diag.Status = diagnostics.SolveStatusInfeasible
@@ -246,7 +254,7 @@ func finalizeSolution(p *problem.Problem, bestSolution *problem.Solution, bestSc
 
 	bestSolution.Score = scorer.Score{
 		HardViolations: 0,
-		SoftPenalty:    bestScore.StudentGapPenalty,
+		SoftPenalty:    bestScore.SoftPenalty,
 		Breakdown:      bestScore,
 	}
 	diag.Status = diagnostics.SolveStatusSolved

@@ -14,6 +14,7 @@ const (
 	SolveStatusSolved           SolveStatus = "SOLVED"
 	SolveStatusInfeasible       SolveStatus = "INFEASIBLE"
 	SolveStatusInvalidProblem   SolveStatus = "INVALID_PROBLEM"
+	SolveStatusInvalidResult    SolveStatus = "INVALID_RESULT"
 	SolveStatusCancelled        SolveStatus = "CANCELLED"
 	SolveStatusDeadlineExceeded SolveStatus = "DEADLINE_EXCEEDED"
 	SolveStatusNodeLimit        SolveStatus = "NODE_LIMIT"

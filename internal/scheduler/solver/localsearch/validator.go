@@ -54,12 +54,10 @@ func (v MoveValidator) Validate(p *problem.Problem, solution *problem.Solution, 
 	}
 
 	if v.Compiled != nil && len(v.Compiled.Hard) > 0 {
-		ctx := constraints.NewSearchCtx(p)
-		if err := solution.UndoMove(p, move); err == nil {
-			for _, c := range v.Compiled.Hard {
-				violations = append(violations, c.ViolatedByMove(ctx, solution, move)...)
+		for _, c := range v.Compiled.Hard {
+			if sv, ok := c.(constraints.ScopedValidator); ok {
+				violations = append(violations, sv.Check(p, solution, assignment)...)
 			}
-			_ = solution.ApplyMove(p, move)
 		}
 	}
 

@@ -41,6 +41,11 @@ type Problem struct {
 
 // StudentGapPenalty computes the student gap penalty for the solution without mutating anything.
 func (p *Problem) StudentGapPenalty(solution *Solution) scorer.ScoreBreakdown {
+	return p.StudentGapPenaltyWithConfig(solution, scorer.DefaultObjectiveConfig())
+}
+
+// StudentGapPenaltyWithConfig computes the student gap penalty for the solution with the provided objective config.
+func (p *Problem) StudentGapPenaltyWithConfig(solution *Solution, cfg scorer.ObjectiveConfig) scorer.ScoreBreakdown {
 	if solution == nil || len(solution.Assignments) == 0 {
 		return scorer.ScoreBreakdown{}
 	}
@@ -79,7 +84,7 @@ func (p *Problem) StudentGapPenalty(solution *Solution) scorer.ScoreBreakdown {
 		}
 	}
 
-	return scorer.CalculateStudentGapPenalty(groups, occupied)
+	return scorer.CalculateStudentGapPenaltyWithConfig(groups, occupied, cfg)
 }
 
 // Prepare builds derived indexes used by constraints and the solver.

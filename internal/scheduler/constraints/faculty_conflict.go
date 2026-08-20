@@ -79,21 +79,23 @@ func (c FacultyConflictConstraint) ViolatedByMove(ctx *SearchCtx, sol *problem.S
 		return nil
 	}
 
-	if err := sol.ApplyMove(p, mv); err != nil {
-		return nil
-	}
-	defer func() {
-		_ = sol.UndoMove(p, mv)
-	}()
-
 	assignment, ok := sol.Index.AssignmentByID(mv.AssignmentID)
 	if !ok {
 		return nil
 	}
 
-	if conflictingID, hasConflict := c.checkAssignment(p, sol, assignment); hasConflict {
+	candidate := assignment
+	candidate.RoomID = mv.To.RoomID
+	candidate.TimeSlotID = mv.To.TimeSlotID
+
+	slotIDs, ok := candidate.OccupiedSlotIDs(p)
+	if !ok {
+		return nil
+	}
+
+	if conflictingID, ok := sol.Index.FacultyConflict(candidate.FacultyID, slotIDs); ok && conflictingID != assignment.ID {
 		return []diagnostics.Violation{
-			c.buildViolation(assignment, conflictingID),
+			c.buildViolation(candidate, conflictingID),
 		}
 	}
 	return nil

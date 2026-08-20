@@ -107,6 +107,9 @@ func (s *Solution) UndoMove(p *Problem, move Move) error {
 
 // ApplySwap mutates solution and index in place to swap placements of two assignments.
 func (s *Solution) ApplySwap(p *Problem, move1, move2 Move) error {
+	if move1.AssignmentID == move2.AssignmentID {
+		return errors.New("cannot swap assignment with itself")
+	}
 	if p.IsLocked(move1.AssignmentID) || p.IsLocked(move2.AssignmentID) {
 		return ErrLockedAssignment
 	}
@@ -164,6 +167,9 @@ func (s *Solution) ApplySwap(p *Problem, move1, move2 Move) error {
 
 // UndoSwap mutates solution and index in place to restore placements of two swapped assignments.
 func (s *Solution) UndoSwap(p *Problem, move1, move2 Move) error {
+	if move1.AssignmentID == move2.AssignmentID {
+		return errors.New("cannot swap assignment with itself")
+	}
 	idx1 := -1
 	idx2 := -1
 	for i := range s.Assignments {

@@ -171,6 +171,18 @@ func validateInstance(p *problem.Problem, idx int, inst ConstraintInstance) []Co
 	switch inst.TemplateID {
 	case "FacultyConflict":
 		// No extra parameters required for FacultyConflict
+	case "FacultyAvailability":
+		// No extra parameters required for FacultyAvailability
+	case "RoomConflict":
+		// No extra parameters required for RoomConflict
+	case "RoomCapacity":
+		// No extra parameters required for RoomCapacity
+	case "RoomAvailability":
+		// No extra parameters required for RoomAvailability
+	case "RoomFeatureCompatibility":
+		// No extra parameters required for RoomFeatureCompatibility
+	case "StudentGroupConflict":
+		// No extra parameters required for StudentGroupConflict
 	case "SubjectMaxPerDay":
 		errs = append(errs, validateSubjectMaxPerDay(p, idx, inst)...)
 	default:
@@ -313,6 +325,18 @@ func compileInstanceDef(inst ConstraintInstance) ConstraintDef {
 	switch inst.TemplateID {
 	case "FacultyConflict":
 		return NewFacultyConflictConstraint(inst)
+	case "FacultyAvailability":
+		return NewFacultyAvailabilityConstraint(inst)
+	case "RoomConflict":
+		return NewRoomConflictConstraint(inst)
+	case "RoomCapacity":
+		return NewRoomCapacityConstraint(inst)
+	case "RoomAvailability":
+		return NewRoomAvailabilityConstraint(inst)
+	case "RoomFeatureCompatibility":
+		return NewRoomFeatureCompatibilityConstraint(inst)
+	case "StudentGroupConflict":
+		return NewStudentGroupConflictConstraint(inst)
 	case "SubjectMaxPerDay":
 		return NewSubjectMaxPerDayConstraint(inst)
 	default:

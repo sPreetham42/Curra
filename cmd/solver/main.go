@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/engine"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
-	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/backtracking"
 )
 
 func main() {
@@ -25,9 +25,15 @@ func main() {
 		os.Exit(2)
 	}
 
-	s := backtracking.New()
-	solution, diag, err := s.Solve(context.Background(), p, problem.SolveOptions{MaxNodes: *maxNodes})
-	writeOutput(solution, diag)
+	req := engine.Request{
+		Problem: p,
+		SolveOptions: problem.SolveOptions{
+			MaxNodes: *maxNodes,
+		},
+	}
+
+	resp, err := engine.Solve(context.Background(), req)
+	writeOutput(resp.Solution, resp.Diagnostics)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "solve: %v\n", err)
 		os.Exit(1)

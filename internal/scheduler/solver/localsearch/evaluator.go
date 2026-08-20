@@ -13,11 +13,17 @@ type ScoreEvaluator interface {
 	Evaluate(p *problem.Problem, solution *problem.Solution) scorer.ScoreBreakdown
 }
 
-// FullScoreEvaluator calculates full student gap penalty.
-type FullScoreEvaluator struct{}
+// FullScoreEvaluator calculates full student gap penalty with optional objective weighting.
+type FullScoreEvaluator struct {
+	Config scorer.ObjectiveConfig
+}
 
 func (e FullScoreEvaluator) Evaluate(p *problem.Problem, solution *problem.Solution) scorer.ScoreBreakdown {
-	return p.StudentGapPenalty(solution)
+	cfg := e.Config
+	if len(cfg.Components) == 0 {
+		cfg = scorer.DefaultObjectiveConfig()
+	}
+	return p.StudentGapPenaltyWithConfig(solution, cfg)
 }
 
 // EvaluationResult contains the validation and scoring results of evaluating a candidate move.
@@ -63,7 +69,18 @@ func EvaluateMove(p *problem.Problem, solution *problem.Solution, move problem.M
 		}, nil
 	}
 
-	score := evaluator.Evaluate(p, solution)
+	var score scorer.ScoreBreakdown
+	if cse, ok := evaluator.(CandidateScoreEvaluator); ok {
+		score = cse.EvaluateCandidateMove(p, solution, CandidateMove{
+			Kind:        MoveKindSingle,
+			Assignment1: move.AssignmentID,
+			From1:       move.From,
+			To1:         move.To,
+		})
+	} else {
+		score = evaluator.Evaluate(p, solution)
+	}
+
 	return EvaluationResult{
 		Legal: true,
 		Score: score,

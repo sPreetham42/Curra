@@ -115,27 +115,24 @@ func (c SubjectMaxPerDayConstraint) ViolatedByMove(ctx *SearchCtx, sol *problem.
 		return nil
 	}
 
-	if err := sol.ApplyMove(p, mv); err != nil {
-		return nil
-	}
-	defer func() {
-		_ = sol.UndoMove(p, mv)
-	}()
-
 	assignment, ok := sol.Index.AssignmentByID(mv.AssignmentID)
 	if !ok || !c.Matches(p, assignment) {
 		return nil
 	}
 
-	slot, ok := p.TimeSlots[assignment.TimeSlotID]
+	slot, ok := p.TimeSlots[mv.To.TimeSlotID]
 	if !ok {
 		return nil
 	}
 
-	count := c.countOnDay(ctx, sol, assignment.StudentGroupID, slot.Day, "")
-	if count > c.MaxPerDay {
+	candidate := assignment
+	candidate.RoomID = mv.To.RoomID
+	candidate.TimeSlotID = mv.To.TimeSlotID
+
+	count := c.countOnDay(ctx, sol, candidate.StudentGroupID, slot.Day, mv.AssignmentID)
+	if count+1 > c.MaxPerDay {
 		return []diagnostics.Violation{
-			c.buildViolation(assignment, slot.Day, count),
+			c.buildViolation(candidate, slot.Day, count+1),
 		}
 	}
 	return nil
@@ -227,4 +224,30 @@ func (c SubjectMaxPerDayConstraint) buildViolation(a problem.Assignment, day tim
 			"maxPerDay": fmt.Sprintf("%d", c.MaxPerDay),
 		},
 	}
+}
+
+func (c SubjectMaxPerDayConstraint) Name() string { return "SubjectMaxPerDay" }
+
+func (c SubjectMaxPerDayConstraint) Check(p *problem.Problem, solution *problem.Solution, assignment problem.Assignment) []diagnostics.Violation {
+	if p == nil || solution == nil || !c.Matches(p, assignment) {
+		return nil
+	}
+	slot, ok := p.TimeSlots[assignment.TimeSlotID]
+	if !ok {
+		return nil
+	}
+	ctx := NewSearchCtx(p)
+	count := c.countOnDay(ctx, solution, assignment.StudentGroupID, slot.Day, "")
+	if count > c.MaxPerDay {
+		return []diagnostics.Violation{
+			c.buildViolation(assignment, slot.Day, count),
+		}
+	}
+	return nil
+}
+
+func (c SubjectMaxPerDayConstraint) CheckAtSlot(p *problem.Problem, solution *problem.Solution, a problem.Assignment, slot model.TimeSlotID) []diagnostics.Violation {
+	candidate := a
+	candidate.TimeSlotID = slot
+	return c.Check(p, solution, candidate)
 }

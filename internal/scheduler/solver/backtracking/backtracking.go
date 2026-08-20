@@ -54,6 +54,8 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 	solution := problem.NewSolution()
 	for _, locked := range p.LockedAssignments {
 		if err := solution.AddAssignment(&p, locked); err != nil {
+			diag.Status = diagnostics.SolveStatusInfeasible
+			diag.Message = fmt.Sprintf("seed locked assignment: %v", err)
 			return problem.Solution{}, diag, fmt.Errorf("seed locked assignment: %w", err)
 		}
 	}
@@ -229,7 +231,12 @@ func (s *Solver) searchHeuristic(ctx context.Context, p *problem.Problem, option
 	}
 	diag.NodesExplored++
 
-	values := orderLCV(p, decisions, domains, assigned, selected, solution, s.Constraints)
+	var values []candidate
+	if options.SearchMode == problem.SearchModeHeuristicLCV {
+		values = orderLCV(p, decisions, domains, assigned, selected, solution, s.Constraints)
+	} else {
+		values = domains[selected]
+	}
 	for _, value := range values {
 		diag.Candidates++
 		assignment := buildAssignment(decisions[selected], value)

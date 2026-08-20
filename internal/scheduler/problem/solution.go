@@ -42,6 +42,20 @@ func (s Solution) Clone() Solution {
 	for k, v := range s.Index.byID {
 		cloned.Index.byID[k] = v
 	}
+	if s.Score.Breakdown.GroupGaps != nil {
+		cloned.Score.Breakdown.GroupGaps = make(map[model.StudentGroupID]int, len(s.Score.Breakdown.GroupGaps))
+		for k, v := range s.Score.Breakdown.GroupGaps {
+			cloned.Score.Breakdown.GroupGaps[k] = v
+		}
+	}
+	if s.Score.Breakdown.Details != nil {
+		cloned.Score.Breakdown.Details = make([]scorer.GroupDayGap, len(s.Score.Breakdown.Details))
+		copy(cloned.Score.Breakdown.Details, s.Score.Breakdown.Details)
+	}
+	if s.Score.Breakdown.Components != nil {
+		cloned.Score.Breakdown.Components = make([]scorer.ObjectiveComponentScore, len(s.Score.Breakdown.Components))
+		copy(cloned.Score.Breakdown.Components, s.Score.Breakdown.Components)
+	}
 	return cloned
 }
 
@@ -141,9 +155,18 @@ func (idx *SolutionIndex) Remove(p *Problem, a Assignment) {
 		return
 	}
 	for _, sid := range slotIDs {
-		delete(idx.FacultySlot, facultyKey(a.FacultyID, sid))
-		delete(idx.RoomSlot, roomKey(a.RoomID, sid))
-		delete(idx.StudentGroupSlot, groupKey(a.StudentGroupID, sid))
+		fKey := facultyKey(a.FacultyID, sid)
+		if id, ok := idx.FacultySlot[fKey]; ok && id == a.ID {
+			delete(idx.FacultySlot, fKey)
+		}
+		rKey := roomKey(a.RoomID, sid)
+		if id, ok := idx.RoomSlot[rKey]; ok && id == a.ID {
+			delete(idx.RoomSlot, rKey)
+		}
+		gKey := groupKey(a.StudentGroupID, sid)
+		if id, ok := idx.StudentGroupSlot[gKey]; ok && id == a.ID {
+			delete(idx.StudentGroupSlot, gKey)
+		}
 	}
 	if idx.RequirementCount[a.SessionRequirementID] > 0 {
 		idx.RequirementCount[a.SessionRequirementID]--

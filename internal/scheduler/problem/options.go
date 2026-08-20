@@ -3,8 +3,9 @@ package problem
 type SearchMode string
 
 const (
-	SearchModeBasic     SearchMode = "BASIC"
-	SearchModeHeuristic SearchMode = "HEURISTIC"
+	SearchModeBasic        SearchMode = "BASIC"
+	SearchModeHeuristic    SearchMode = "HEURISTIC"
+	SearchModeHeuristicLCV SearchMode = "HEURISTIC_LCV"
 )
 
 // SolveOptions controls the bounded search performed by a solver.

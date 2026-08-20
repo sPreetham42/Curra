@@ -5,6 +5,7 @@ import (
 
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/scorer"
 )
 
 type MoveKind int
@@ -169,7 +170,13 @@ func EvaluateCandidateMove(p *problem.Problem, solution *problem.Solution, cm Ca
 		}, nil
 	}
 
-	score := evaluator.Evaluate(p, solution)
+	var score scorer.ScoreBreakdown
+	if cse, ok := evaluator.(CandidateScoreEvaluator); ok {
+		score = cse.EvaluateCandidateMove(p, solution, cm)
+	} else {
+		score = evaluator.Evaluate(p, solution)
+	}
+
 	return EvaluationResult{
 		Legal: true,
 		Score: score,
