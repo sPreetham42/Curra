@@ -1,0 +1,24 @@
+{
+  "data": {
+    "id": "run_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "CANCELLED",
+    "solverConfig": {
+      "searchMode": "HEURISTIC_LCV",
+      "maxNodes": 100000,
+      "seed": 42
+    },
+    "seed": 42,
+    "diagnostics": {
+      "status": "CANCELLED",
+      "nodesExplored": 5200,
+      "candidates": 21000,
+      "backtracks": 3100,
+      "message": "context canceled"
+    },
+    "durationMs": 2100,
+    "createdAt": "2026-08-24T10:30:00Z",
+    "version": 1
+  }
+}

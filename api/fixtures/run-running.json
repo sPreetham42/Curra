@@ -1,0 +1,24 @@
+{
+  "data": {
+    "id": "run_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "RUNNING",
+    "solverConfig": {
+      "searchMode": "HEURISTIC_LCV",
+      "maxNodes": 100000,
+      "seed": 42
+    },
+    "seed": 42,
+    "diagnostics": {
+      "status": "RUNNING",
+      "nodesExplored": 1500,
+      "candidates": 8200,
+      "backtracks": 420,
+      "message": "search in progress"
+    },
+    "startedAt": "2026-08-24T10:30:01Z",
+    "createdAt": "2026-08-24T10:30:00Z",
+    "version": 1
+  }
+}

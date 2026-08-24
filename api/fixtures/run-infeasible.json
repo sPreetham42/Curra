@@ -1,0 +1,42 @@
+{
+  "data": {
+    "id": "run_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "INFEASIBLE",
+    "solverConfig": {
+      "searchMode": "HEURISTIC",
+      "maxNodes": 100000,
+      "seed": 42
+    },
+    "seed": 42,
+    "ruleSetHash": "a1b2c3d4e5f6...",
+    "curraVersion": "1.0.0",
+    "curraCommit": "abc123f",
+    "score": {
+      "hardViolations": 3,
+      "softPenalty": 0
+    },
+    "diagnostics": {
+      "status": "INFEASIBLE",
+      "nodesExplored": 100000,
+      "candidates": 48203,
+      "backtracks": 99812,
+      "message": "no feasible timetable found"
+    },
+    "violations": [
+      {
+        "constraintName": "FacultyConflict",
+        "severity": "HARD",
+        "message": "Faculty 'Prof. Smith' is already scheduled in room-301 at Monday Period 2",
+        "relatedIds": {
+          "facultyId": "fac-smith",
+          "conflictingAssignmentId": "req-cs101-theory#0"
+        }
+      }
+    ],
+    "durationMs": 5234,
+    "createdAt": "2026-08-24T10:30:00Z",
+    "version": 1
+  }
+}

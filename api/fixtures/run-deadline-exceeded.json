@@ -1,0 +1,35 @@
+{
+  "data": {
+    "id": "run_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "DEADLINE_EXCEEDED",
+    "solverConfig": {
+      "searchMode": "HEURISTIC_LCV",
+      "maxNodes": 100000,
+      "seed": 42
+    },
+    "seed": 42,
+    "score": {
+      "hardViolations": 2,
+      "softPenalty": 15
+    },
+    "diagnostics": {
+      "status": "DEADLINE_EXCEEDED",
+      "nodesExplored": 78000,
+      "candidates": 320000,
+      "backtracks": 45000,
+      "message": "tabu search stopped: DEADLINE_EXCEEDED"
+    },
+    "violations": [
+      {
+        "constraintName": "FacultyConflict",
+        "severity": "HARD",
+        "message": "Faculty conflict at Wednesday Period 4"
+      }
+    ],
+    "durationMs": 30000,
+    "createdAt": "2026-08-24T10:30:00Z",
+    "version": 1
+  }
+}

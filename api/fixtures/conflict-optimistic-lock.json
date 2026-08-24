@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Resource was modified by another request. Please refresh and retry.",
+    "currentVersion": 5,
+    "yourVersion": 3
+  }
+}

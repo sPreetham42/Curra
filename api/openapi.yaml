@@ -1,0 +1,929 @@
+openapi: "3.1.0"
+info:
+  title: CURRA Timetable Platform API
+  version: "1.0.0"
+  description: REST API for the CURRA timetable scheduling platform.
+
+servers:
+  - url: /api/v1
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE, RATE_LIMITED, INTERNAL_ERROR]
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    Institution:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        version:
+          type: integer
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        avatarUrl:
+          type: string
+
+    UserRole:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        institutionId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [INSTITUTION_ADMIN, SCHEDULER, PROFESSOR, VIEWER]
+        facultyId:
+          type: string
+
+    Department:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+
+    Program:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        departmentId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+
+    Class:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        programId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+
+    StudentGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        classId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        size:
+          type: integer
+        isWholeGroup:
+          type: boolean
+        version:
+          type: integer
+
+    Subject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        version:
+          type: integer
+
+    Faculty:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+
+    Room:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        capacity:
+          type: integer
+        featureIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        version:
+          type: integer
+
+    RoomFeature:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: integer
+
+    TimeSlot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        day:
+          type: string
+          enum: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+        period:
+          type: integer
+        label:
+          type: string
+        version:
+          type: integer
+
+    CourseOffering:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        termId:
+          type: string
+          format: uuid
+        classId:
+          type: string
+          format: uuid
+        subjectId:
+          type: string
+          format: uuid
+        studentGroupId:
+          type: string
+          format: uuid
+        facultyId:
+          type: string
+          format: uuid
+        requiredRoomFeatureIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        version:
+          type: integer
+
+    SessionRequirement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        courseOfferingId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [THEORY, LAB]
+        sessionsPerWeek:
+          type: integer
+        duration:
+          type: integer
+        consecutive:
+          type: boolean
+        requiredRoomFeatureIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        version:
+          type: integer
+
+    Timetable:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        currentPublishedVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        version:
+          type: integer
+
+    ProblemSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timetableId:
+          type: string
+          format: uuid
+        schemaVersion:
+          type: integer
+        inputHash:
+          type: string
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    ScheduleRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timetableId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [QUEUED, RUNNING, SOLVED, INFEASIBLE, INVALID_PROBLEM, INVALID_RESULT, CANCELLED, DEADLINE_EXCEEDED, NODE_LIMIT, FAILED]
+        solverConfig:
+          type: object
+        seed:
+          type: integer
+          format: int64
+        ruleSetHash:
+          type: string
+        curraVersion:
+          type: string
+        curraCommit:
+          type: string
+        score:
+          $ref: "#/components/schemas/Score"
+        diagnostics:
+          $ref: "#/components/schemas/Diagnostics"
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Violation"
+        durationMs:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+
+    ScheduleVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timetableId:
+          type: string
+          format: uuid
+        sourceRunId:
+          type: string
+          format: uuid
+          nullable: true
+        snapshotId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [DRAFT, REVIEW, PUBLISHED, ARCHIVED]
+        name:
+          type: string
+        score:
+          $ref: "#/components/schemas/Score"
+        assignmentCount:
+          type: integer
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    ScheduleAssignment:
+      type: object
+      properties:
+        id:
+          type: string
+        courseOfferingId:
+          type: string
+        sessionRequirementId:
+          type: string
+        studentGroupId:
+          type: string
+        facultyId:
+          type: string
+        roomId:
+          type: string
+        timeSlotId:
+          type: string
+        instance:
+          type: integer
+
+    Score:
+      type: object
+      properties:
+        hardViolations:
+          type: integer
+        softPenalty:
+          type: integer
+        breakdown:
+          type: object
+          properties:
+            studentGapPenalty:
+              type: integer
+            groupGaps:
+              type: object
+              additionalProperties:
+                type: integer
+
+    Diagnostics:
+      type: object
+      properties:
+        status:
+          type: string
+        nodesExplored:
+          type: integer
+        candidates:
+          type: integer
+        backtracks:
+          type: integer
+        message:
+          type: string
+
+    Violation:
+      type: object
+      properties:
+        constraintName:
+          type: string
+        severity:
+          type: string
+          enum: [HARD, SOFT, INFO]
+        message:
+          type: string
+        assignmentId:
+          type: string
+        relatedIds:
+          type: object
+          additionalProperties:
+            type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    CompileError:
+      type: object
+      properties:
+        templateId:
+          type: string
+        field:
+          type: string
+        message:
+          type: string
+
+    Move:
+      type: object
+      properties:
+        assignmentId:
+          type: string
+        from:
+          $ref: "#/components/schemas/Placement"
+        to:
+          $ref: "#/components/schemas/Placement"
+
+    Placement:
+      type: object
+      properties:
+        roomId:
+          type: string
+        timeSlotId:
+          type: string
+
+    VerificationReport:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        status:
+          type: string
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Violation"
+        message:
+          type: string
+
+    ImportBatch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timetableId:
+          type: string
+          format: uuid
+        sourceType:
+          type: string
+        sourceFilename:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, PARSING, STAGED, VALIDATING, READY, COMMITTED, FAILED, CANCELLED]
+        totalRows:
+          type: integer
+        validRows:
+          type: integer
+        errorRows:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    ChatMessage:
+      type: object
+      properties:
+        message:
+          type: string
+        context:
+          type: object
+          properties:
+            currentVersionId:
+              type: string
+            selectedAssignmentId:
+              type: string
+
+    ChatResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [ANSWER, PROPOSAL]
+        message:
+          type: string
+        proposal:
+          type: object
+          properties:
+            description:
+              type: string
+            actions:
+              type: array
+              items:
+                type: object
+                properties:
+                  action:
+                    type: string
+                  target:
+                    type: object
+                  proposed:
+                    type: object
+            explanation:
+              type: string
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+        action:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: string
+          format: uuid
+        details:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+
+paths:
+  /auth/google:
+    post:
+      summary: Exchange Google OAuth code for JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+
+  /auth/me:
+    get:
+      summary: Get current user profile
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+
+  /institutions/{instId}:
+    get:
+      summary: Get institution
+      parameters:
+        - name: instId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Institution details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Institution"
+
+  /institutions/{instId}/departments:
+    get:
+      summary: List departments
+      parameters:
+        - name: instId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Department list
+    post:
+      summary: Create department
+      parameters:
+        - name: instId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Department created
+
+  /institutions/{instId}/programs:
+    get:
+      summary: List programs
+      parameters:
+        - name: instId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+    post:
+      summary: Create program
+
+  /institutions/{instId}/classes:
+    get:
+      summary: List classes
+    post:
+      summary: Create class
+
+  /institutions/{instId}/student-groups:
+    get:
+      summary: List student groups
+    post:
+      summary: Create student group
+
+  /institutions/{instId}/subjects:
+    get:
+      summary: List subjects
+    post:
+      summary: Create subject
+
+  /institutions/{instId}/faculty:
+    get:
+      summary: List faculty
+    post:
+      summary: Create faculty
+
+  /institutions/{instId}/rooms:
+    get:
+      summary: List rooms
+    post:
+      summary: Create room
+
+  /institutions/{instId}/room-features:
+    get:
+      summary: List room features
+    post:
+      summary: Create room feature
+
+  /institutions/{instId}/time-slots:
+    get:
+      summary: List time slots
+    post:
+      summary: Create time slot
+
+  /institutions/{instId}/course-offerings:
+    get:
+      summary: List course offerings
+    post:
+      summary: Create course offering
+
+  /institutions/{instId}/session-requirements:
+    get:
+      summary: List session requirements
+    post:
+      summary: Create session requirement
+
+  /institutions/{instId}/faculty-availability:
+    get:
+      summary: List faculty availability
+    post:
+      summary: Create faculty availability entry
+    delete:
+      summary: Remove faculty availability entry
+
+  /institutions/{instId}/room-availability:
+    get:
+      summary: List room availability
+    post:
+      summary: Create room availability entry
+    delete:
+      summary: Remove room availability entry
+
+  /timetables:
+    get:
+      summary: List timetables
+    post:
+      summary: Create timetable
+
+  /timetables/{id}:
+    get:
+      summary: Get timetable
+    patch:
+      summary: Update timetable
+    delete:
+      summary: Delete timetable
+
+  /timetables/{id}/snapshots:
+    get:
+      summary: List snapshots
+    post:
+      summary: Create snapshot from current data
+
+  /snapshots/{id}:
+    get:
+      summary: Get snapshot
+  /snapshots/{id}/problem:
+    get:
+      summary: Download problem JSON
+
+  /timetables/{id}/runs:
+    get:
+      summary: List schedule runs
+    post:
+      summary: Create schedule run
+
+  /runs/{id}:
+    get:
+      summary: Get run details and result
+  /runs/{id}/cancel:
+    post:
+      summary: Cancel a running or queued run
+  /runs/{id}/verify:
+    get:
+      summary: Re-verify run result independently
+
+  /timetables/{id}/versions:
+    get:
+      summary: List schedule versions
+    post:
+      summary: Create draft version
+
+  /versions/{id}:
+    get:
+      summary: Get version with assignments
+    patch:
+      summary: Update draft version (name only)
+
+  /versions/{id}/assignments:
+    get:
+      summary: List assignments in version
+
+  /versions/{id}/assignments/move:
+    post:
+      summary: Move an assignment (validated by CURRA)
+
+  /versions/{id}/assignments/swap:
+    post:
+      summary: Swap two assignments (validated by CURRA)
+
+  /versions/{id}/assignments/pin:
+    post:
+      summary: Pin an assignment
+  /versions/{id}/assignments/pins/{pinId}:
+    delete:
+      summary: Unpin an assignment
+
+  /versions/{id}/submit-review:
+    post:
+      summary: Submit draft for review
+
+  /versions/{id}/publish:
+    post:
+      summary: Publish reviewed version
+
+  /versions/{id}/send-back:
+    post:
+      summary: Send back to draft
+
+  /versions/{id}/archive:
+    post:
+      summary: Archive version
+
+  /timetables/{id}/import:
+    post:
+      summary: Upload file for import
+
+  /import-batches/{id}:
+    get:
+      summary: Get import batch status
+
+  /import-batches/{id}/rows:
+    get:
+      summary: Preview import rows
+
+  /import-batches/{id}/commit:
+    post:
+      summary: Commit valid import rows
+
+  /import-batches/{id}/cancel:
+    post:
+      summary: Cancel import
+
+  /timetables/{id}/chat:
+    post:
+      summary: Send chat message to AI
+
+  /chat/proposals/{id}/accept:
+    post:
+      summary: Accept AI proposal
+
+  /chat/proposals/{id}/reject:
+    post:
+      summary: Reject AI proposal
+
+  /verify:
+    post:
+      summary: Verify a solution against a snapshot
+      description: Independently verifies that a stored schedule version's assignments are valid against the problem snapshot it was created from.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [snapshotId, versionId]
+              properties:
+                snapshotId:
+                  type: string
+                  format: uuid
+                  description: The problem snapshot to verify against
+                versionId:
+                  type: string
+                  format: uuid
+                  description: The schedule version whose assignments to verify
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/VerificationReport"

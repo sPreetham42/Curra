@@ -1,0 +1,27 @@
+{
+  "data": {
+    "id": "imp_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "sourceType": "CSV",
+    "sourceFilename": "faculty_availability.csv",
+    "status": "READY",
+    "totalRows": 150,
+    "validRows": 147,
+    "errorRows": 3,
+    "createdAt": "2026-08-24T10:00:00Z",
+    "errors": [
+      {
+        "rowNumber": 12,
+        "message": "Unknown faculty name: 'Dr. Unknown'"
+      },
+      {
+        "rowNumber": 45,
+        "message": "Invalid day: 'Funday'"
+      },
+      {
+        "rowNumber": 89,
+        "message": "Period must be between 1 and 8, got 9"
+      }
+    ]
+  }
+}

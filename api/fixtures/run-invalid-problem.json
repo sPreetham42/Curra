@@ -1,0 +1,33 @@
+{
+  "data": {
+    "id": "run_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "INVALID_PROBLEM",
+    "solverConfig": {
+      "searchMode": "HEURISTIC",
+      "maxNodes": 100000,
+      "seed": 42
+    },
+    "diagnostics": {
+      "status": "INVALID_PROBLEM",
+      "nodesExplored": 0,
+      "candidates": 0,
+      "backtracks": 0,
+      "message": "problem validation failed with 2 violations"
+    },
+    "violations": [
+      {
+        "constraintName": "ProblemValidation",
+        "severity": "HARD",
+        "message": "course offering references missing faculty",
+        "relatedIds": {
+          "courseOfferingId": "co-math101",
+          "facultyId": "fac-nonexistent"
+        }
+      }
+    ],
+    "createdAt": "2026-08-24T10:30:00Z",
+    "version": 1
+  }
+}

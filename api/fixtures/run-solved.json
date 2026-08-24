@@ -1,0 +1,42 @@
+{
+  "data": {
+    "id": "run_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "SOLVED",
+    "solverConfig": {
+      "searchMode": "HEURISTIC_LCV",
+      "maxNodes": 100000,
+      "tabuMaxIterations": 1000,
+      "tabuTenure": 10,
+      "seed": 42,
+      "disableOptimize": false
+    },
+    "seed": 42,
+    "ruleSetHash": "a1b2c3d4e5f6...",
+    "curraVersion": "1.0.0",
+    "curraCommit": "abc123f",
+    "score": {
+      "hardViolations": 0,
+      "softPenalty": 12,
+      "breakdown": {
+        "studentGapPenalty": 12,
+        "groupGaps": {
+          "sg-cs-a-whole": 5,
+          "sg-cs-b-whole": 7
+        }
+      }
+    },
+    "diagnostics": {
+      "status": "SOLVED",
+      "nodesExplored": 342,
+      "candidates": 1847,
+      "backtracks": 18,
+      "message": "feasible and verified timetable found"
+    },
+    "violations": null,
+    "durationMs": 892,
+    "createdAt": "2026-08-24T10:30:00Z",
+    "version": 1
+  }
+}

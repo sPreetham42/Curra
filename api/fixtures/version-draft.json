@@ -1,0 +1,56 @@
+{
+  "data": {
+    "id": "ver_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "sourceRunId": "run_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "DRAFT",
+    "name": "Draft v3 — after room reassignment",
+    "score": {
+      "hardViolations": 0,
+      "softPenalty": 8,
+      "breakdown": {
+        "studentGapPenalty": 8,
+        "groupGaps": {
+          "sg-cs-a-whole": 3,
+          "sg-cs-b-whole": 5
+        }
+      }
+    },
+    "assignmentCount": 42,
+    "version": 1,
+    "createdAt": "2026-08-24T11:00:00Z",
+    "assignments": [
+      {
+        "id": "req-cs101-theory#0",
+        "courseOfferingId": "co-cs101-a",
+        "sessionRequirementId": "req-cs101-theory",
+        "studentGroupId": "sg-cs-a-whole",
+        "facultyId": "fac-smith",
+        "roomId": "room-301",
+        "timeSlotId": "ts-mon-p1",
+        "instance": 0
+      },
+      {
+        "id": "req-cs101-theory#1",
+        "courseOfferingId": "co-cs101-a",
+        "sessionRequirementId": "req-cs101-theory",
+        "studentGroupId": "sg-cs-a-whole",
+        "facultyId": "fac-smith",
+        "roomId": "room-301",
+        "timeSlotId": "ts-wed-p3",
+        "instance": 1
+      },
+      {
+        "id": "req-cs101-lab#0",
+        "courseOfferingId": "co-cs101-a",
+        "sessionRequirementId": "req-cs101-lab",
+        "studentGroupId": "sg-cs-a1",
+        "facultyId": "fac-smith",
+        "roomId": "room-gpu-lab",
+        "timeSlotId": "ts-thu-p1",
+        "instance": 0
+      }
+    ]
+  }
+}

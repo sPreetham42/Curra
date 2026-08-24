@@ -1,0 +1,24 @@
+{
+  "data": {
+    "type": "PROPOSAL",
+    "message": "I can help reduce the gap for CS-Year2-A on Wednesdays. Here's my suggestion:",
+    "proposal": {
+      "description": "Move CS101 Theory from Monday Period 1 to Wednesday Period 3",
+      "actions": [
+        {
+          "action": "MOVE_ASSIGNMENT",
+          "target": {
+            "assignmentId": "req-cs101-theory#0",
+            "currentRoomId": "room-301",
+            "currentTimeSlotId": "ts-mon-p1"
+          },
+          "proposed": {
+            "roomId": "room-301",
+            "timeSlotId": "ts-wed-p3"
+          }
+        }
+      ],
+      "explanation": "Moving this lecture from Monday to Wednesday fills the gap between the Math101 Theory (P1-P2) and the CS101 Lab (P5-P6) on Wednesdays, reducing the student gap penalty from 3 to 0 for this group on that day."
+    }
+  }
+}

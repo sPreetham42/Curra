@@ -1,0 +1,16 @@
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "details": [
+      {
+        "field": "name",
+        "message": "Required"
+      },
+      {
+        "field": "capacity",
+        "message": "Must be a positive integer"
+      }
+    ]
+  }
+}

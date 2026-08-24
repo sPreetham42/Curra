@@ -1,0 +1,25 @@
+{
+  "data": {
+    "id": "ver_01HZ...",
+    "timetableId": "tt_01HZ...",
+    "sourceRunId": "run_01HZ...",
+    "snapshotId": "snap_01HZ...",
+    "status": "PUBLISHED",
+    "name": "Fall 2026 — CS Department (Published)",
+    "score": {
+      "hardViolations": 0,
+      "softPenalty": 5,
+      "breakdown": {
+        "studentGapPenalty": 5,
+        "groupGaps": {
+          "sg-cs-a-whole": 2,
+          "sg-cs-b-whole": 3
+        }
+      }
+    },
+    "assignmentCount": 42,
+    "version": 2,
+    "createdAt": "2026-08-23T16:00:00Z",
+    "publishedAt": "2026-08-24T09:00:00Z"
+  }
+}
