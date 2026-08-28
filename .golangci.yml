@@ -1,0 +1,22 @@
+version: "2"
+
+linters:
+  enable:
+    - depguard
+    - govet
+    - staticcheck
+    - ineffassign
+
+linters-settings:
+  depguard:
+    rules:
+      main:
+        list-mode: lax
+        files:
+          - "!**/application/internal/curra/**"
+          - "!**/internal/scheduler/**"
+          - "!**/tests/**"
+          - "!**/cmd/solver/**"
+        deny:
+          - pkg: "github.com/sPreetham42/timetable-platform/internal/scheduler"
+            desc: "CURRA solver internals may only be imported by application/internal/curra"

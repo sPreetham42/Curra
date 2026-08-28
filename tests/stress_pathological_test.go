@@ -10,6 +10,7 @@ import (
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/testutil"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/backtracking"
 )
 
@@ -227,7 +228,7 @@ func TestStress_ProvablyInfeasible_OverbookedRoom(t *testing.T) {
 
 func TestStress_CleanTimeoutAndNodeLimitPreservation(t *testing.T) {
 	// Ensure solver respects context cancellation cleanly and returns exact valid diagnostic state
-	p := GenerateSyntheticProblem(DefaultMediumProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
 	p.Prepare()
 
 	// 1. MaxNodes limit

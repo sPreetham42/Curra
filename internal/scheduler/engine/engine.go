@@ -60,6 +60,19 @@ func Solve(ctx context.Context, req Request) (Response, error) {
 	// 2. Problem Preparation
 	req.Problem.Prepare()
 
+	// 2a. Fast Pre-Solve Analysis
+	presolveViolations := problem.PreSolve(&req.Problem)
+	if len(presolveViolations) > 0 {
+		return Response{
+			Solution: problem.Solution{},
+			Diagnostics: diagnostics.Diagnostics{
+				Status:     diagnostics.SolveStatusInfeasible,
+				Violations: presolveViolations,
+				Message:    fmt.Sprintf("pre-solve analysis detected %d feasibility issues", len(presolveViolations)),
+			},
+		}, backtracking.ErrNoSolution
+	}
+
 	// 3. Constraint Compilation
 	compiled, _, compileErrors := constraints.Compile(&req.Problem, req.Constraints)
 	if len(compileErrors) > 0 {

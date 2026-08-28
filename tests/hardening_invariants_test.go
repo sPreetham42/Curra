@@ -14,6 +14,7 @@ import (
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/testutil"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/scorer"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/backtracking"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/localsearch"
@@ -93,7 +94,7 @@ func assertSolutionIndexConsistent(t *testing.T, p *problem.Problem, sol *proble
 // ----------------------------------------------------------------------------
 
 func TestHardening_P0_CandidateSwapValidationTransactional(t *testing.T) {
-	p, initialSol := localSearchTestProblem()
+	p, initialSol := testutil.LocalSearchTestProblem()
 	p.Prepare()
 
 	// Compile all 8 hard constraints
@@ -157,7 +158,7 @@ func TestHardening_P0_CandidateSwapValidationTransactional(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 func TestHardening_IndexInvariants_RandomizedMoveUndo(t *testing.T) {
-	p, initialSol := localSearchTestProblem()
+	p, initialSol := testutil.LocalSearchTestProblem()
 	p.Prepare()
 
 	roomList := make([]model.RoomID, 0, len(p.Rooms))
@@ -211,7 +212,7 @@ func TestHardening_IndexInvariants_RandomizedMoveUndo(t *testing.T) {
 }
 
 func TestHardening_IndexInvariants_RandomizedSwapUndo(t *testing.T) {
-	p, initialSol := localSearchTestProblem()
+	p, initialSol := testutil.LocalSearchTestProblem()
 	p.Prepare()
 
 	rng := rand.New(rand.NewSource(8888))
@@ -268,7 +269,7 @@ func TestHardening_IndexInvariants_RandomizedSwapUndo(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 func TestHardening_MoveSwap_EdgePlacementsAndSelfSwap(t *testing.T) {
-	p, sol := localSearchTestProblem()
+	p, sol := testutil.LocalSearchTestProblem()
 	p.Prepare()
 
 	// 1. Self-swap rejection
@@ -345,7 +346,7 @@ func TestHardening_IncrementalScore_RandomizedParity(t *testing.T) {
 
 	for _, tc := range configs {
 		t.Run(tc.name, func(t *testing.T) {
-			p := GenerateSyntheticProblem(DefaultMediumProblemConfig())
+			p := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
 			p.Prepare()
 
 			sol := problem.NewSolution()
@@ -485,7 +486,7 @@ func TestHardening_IncrementalScore_RandomizedParity(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 func TestHardening_Tabu_FailurePaths(t *testing.T) {
-	p, initialSol := localSearchTestProblem()
+	p, initialSol := testutil.LocalSearchTestProblem()
 	p.Prepare()
 
 	// Compile all 8 hard constraints
@@ -577,7 +578,7 @@ func TestHardening_Tabu_FailurePaths(t *testing.T) {
 
 func TestHardening_CSP_FailurePaths(t *testing.T) {
 	// 1. Contradictory locked assignments -> INFEASIBLE or INVALID_PROBLEM status & descriptive error
-	p, _ := localSearchTestProblem()
+	p, _ := testutil.LocalSearchTestProblem()
 	p.LockedAssignments = []problem.Assignment{
 		{ID: "lock-1", CourseOfferingID: "offering-a-theory", StudentGroupID: "group-a-whole", FacultyID: "faculty-1", RoomID: "room-lecture-1", TimeSlotID: "mon-1", SessionRequirementID: "req-a-theory", Instance: 0},
 		{ID: "lock-2", CourseOfferingID: "offering-b-theory", StudentGroupID: "group-b-whole", FacultyID: "faculty-3", RoomID: "room-lecture-1", TimeSlotID: "mon-1", SessionRequirementID: "req-b-theory", Instance: 0},
@@ -593,7 +594,7 @@ func TestHardening_CSP_FailurePaths(t *testing.T) {
 	}
 
 	// 2. Node limit reached -> NODE_LIMIT status
-	pNormal, _ := localSearchTestProblem()
+	pNormal, _ := testutil.LocalSearchTestProblem()
 	optsNodeLimit := problem.SolveOptions{MaxNodes: 1}
 	_, diagNode, errNode := solver.Solve(context.Background(), pNormal, optsNodeLimit)
 	if !errors.Is(errNode, backtracking.ErrNodeLimit) {
@@ -703,7 +704,7 @@ func TestHardening_DeterministicReplay(t *testing.T) {
 
 func TestHardening_AdversarialInputValidation(t *testing.T) {
 	// 1. PeriodsPerDay <= 0
-	p1, _ := localSearchTestProblem()
+	p1, _ := testutil.LocalSearchTestProblem()
 	p1.PeriodsPerDay = 0
 	v1 := problem.Validate(p1)
 	if len(v1) == 0 || !hasViolationMessage(v1, "non-positive periods per day") {
@@ -711,7 +712,7 @@ func TestHardening_AdversarialInputValidation(t *testing.T) {
 	}
 
 	// 2. Empty TenantID
-	p2, _ := localSearchTestProblem()
+	p2, _ := testutil.LocalSearchTestProblem()
 	p2.TenantID = ""
 	v2 := problem.Validate(p2)
 	if len(v2) == 0 || !hasViolationMessage(v2, "empty tenant ID") {
@@ -719,7 +720,7 @@ func TestHardening_AdversarialInputValidation(t *testing.T) {
 	}
 
 	// 3. Program references missing Department
-	p3, _ := localSearchTestProblem()
+	p3, _ := testutil.LocalSearchTestProblem()
 	p3.Programs["prog-bad"] = model.Program{ID: "prog-bad", DepartmentID: "missing-dept-99"}
 	v3 := problem.Validate(p3)
 	if len(v3) == 0 || !hasViolationMessage(v3, "references missing department") {
@@ -727,7 +728,7 @@ func TestHardening_AdversarialInputValidation(t *testing.T) {
 	}
 
 	// 4. Session duration exceeds PeriodsPerDay
-	p4, _ := localSearchTestProblem()
+	p4, _ := testutil.LocalSearchTestProblem()
 	req := p4.SessionRequirements["req-a-theory"]
 	req.Duration = 10 // periodsPerDay is 4
 	p4.SessionRequirements["req-a-theory"] = req
@@ -737,7 +738,7 @@ func TestHardening_AdversarialInputValidation(t *testing.T) {
 	}
 
 	// 5. Entity with empty ID
-	p5, _ := localSearchTestProblem()
+	p5, _ := testutil.LocalSearchTestProblem()
 	p5.Faculty[""] = model.Faculty{ID: "", Name: "Ghost"}
 	v5 := problem.Validate(p5)
 	if len(v5) == 0 || !hasViolationMessage(v5, "faculty has empty ID") {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/testutil"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/scorer"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/backtracking"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/localsearch"
@@ -19,21 +20,21 @@ import (
 
 func TestPerformanceFixtures_Validation(t *testing.T) {
 	// Small
-	pSmall := GenerateSyntheticProblem(DefaultSmallProblemConfig())
+	pSmall := testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())
 	if violations := problem.Validate(pSmall); len(violations) > 0 {
 		t.Fatalf("Small problem failed validation with %d violations: %+v", len(violations), violations[0])
 	}
-	sessionsSmall := CountTotalSessions(&pSmall)
+	sessionsSmall := testutil.CountTotalSessions(&pSmall)
 	if sessionsSmall < 20 || sessionsSmall > 30 {
 		t.Fatalf("expected Small problem to have ~20-30 sessions, got %d", sessionsSmall)
 	}
 
 	// Medium
-	pMedium := GenerateSyntheticProblem(DefaultMediumProblemConfig())
+	pMedium := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
 	if violations := problem.Validate(pMedium); len(violations) > 0 {
 		t.Fatalf("Medium problem failed validation with %d violations: %+v", len(violations), violations[0])
 	}
-	sessionsMedium := CountTotalSessions(&pMedium)
+	sessionsMedium := testutil.CountTotalSessions(&pMedium)
 	if sessionsMedium < 250 || sessionsMedium > 350 {
 		t.Fatalf("expected Medium problem to have ~300 sessions, got %d", sessionsMedium)
 	}
@@ -45,11 +46,11 @@ func TestPerformanceFixtures_Validation(t *testing.T) {
 	}
 
 	// Large
-	pLarge := GenerateSyntheticProblem(DefaultLargeProblemConfig())
+	pLarge := testutil.GenerateSyntheticProblem(testutil.DefaultLargeProblemConfig())
 	if violations := problem.Validate(pLarge); len(violations) > 0 {
 		t.Fatalf("Large problem failed validation with %d violations: %+v", len(violations), violations[0])
 	}
-	sessionsLarge := CountTotalSessions(&pLarge)
+	sessionsLarge := testutil.CountTotalSessions(&pLarge)
 	if sessionsLarge < 2500 || sessionsLarge > 3500 {
 		t.Fatalf("expected Large problem to have ~3000 sessions, got %d", sessionsLarge)
 	}
@@ -66,8 +67,8 @@ func TestPerformanceFixtures_Validation(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 func BenchmarkProblemPrepare_Small(b *testing.B) {
-	cfg := DefaultSmallProblemConfig()
-	p := GenerateSyntheticProblem(cfg)
+	cfg := testutil.DefaultSmallProblemConfig()
+	p := testutil.GenerateSyntheticProblem(cfg)
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -76,8 +77,8 @@ func BenchmarkProblemPrepare_Small(b *testing.B) {
 }
 
 func BenchmarkProblemPrepare_Medium(b *testing.B) {
-	cfg := DefaultMediumProblemConfig()
-	p := GenerateSyntheticProblem(cfg)
+	cfg := testutil.DefaultMediumProblemConfig()
+	p := testutil.GenerateSyntheticProblem(cfg)
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -86,8 +87,8 @@ func BenchmarkProblemPrepare_Medium(b *testing.B) {
 }
 
 func BenchmarkProblemPrepare_Large(b *testing.B) {
-	cfg := DefaultLargeProblemConfig()
-	p := GenerateSyntheticProblem(cfg)
+	cfg := testutil.DefaultLargeProblemConfig()
+	p := testutil.GenerateSyntheticProblem(cfg)
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -100,7 +101,7 @@ func BenchmarkProblemPrepare_Large(b *testing.B) {
 // ----------------------------------------------------------------------------
 
 func BenchmarkCSPSolve_Small_Basic(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultSmallProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())
 	solver := backtracking.New()
 	opts := problem.SolveOptions{MaxNodes: 100000, SearchMode: problem.SearchModeBasic}
 
@@ -115,7 +116,7 @@ func BenchmarkCSPSolve_Small_Basic(b *testing.B) {
 }
 
 func BenchmarkCSPSolve_Small_Heuristic(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultSmallProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())
 	solver := backtracking.New()
 	opts := problem.SolveOptions{MaxNodes: 100000, SearchMode: problem.SearchModeHeuristic}
 
@@ -130,7 +131,7 @@ func BenchmarkCSPSolve_Small_Heuristic(b *testing.B) {
 }
 
 func BenchmarkCSPSolve_Medium_Basic(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultMediumProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
 	solver := backtracking.New()
 	opts := problem.SolveOptions{MaxNodes: 100000, SearchMode: problem.SearchModeBasic}
 
@@ -149,7 +150,7 @@ func BenchmarkCSPSolve_Medium_Basic(b *testing.B) {
 // ----------------------------------------------------------------------------
 
 func BenchmarkTabuOptimization_Small(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultSmallProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())
 	solver := backtracking.New()
 	sol, _, err := solver.Solve(context.Background(), p, problem.SolveOptions{MaxNodes: 100000})
 	if err != nil {
@@ -175,7 +176,7 @@ func BenchmarkTabuOptimization_Small(b *testing.B) {
 }
 
 func BenchmarkTabuOptimization_Medium(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultMediumProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
 	solver := backtracking.New()
 	sol, _, err := solver.Solve(context.Background(), p, problem.SolveOptions{MaxNodes: 100000, SearchMode: problem.SearchModeBasic})
 	if err != nil {
@@ -205,7 +206,7 @@ func BenchmarkTabuOptimization_Medium(b *testing.B) {
 // ----------------------------------------------------------------------------
 
 func BenchmarkFullScoreEvaluator_Small(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultSmallProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())
 	solver := backtracking.New()
 	sol, _, err := solver.Solve(context.Background(), p, problem.SolveOptions{MaxNodes: 100000, SearchMode: problem.SearchModeBasic})
 	if err != nil {
@@ -221,7 +222,7 @@ func BenchmarkFullScoreEvaluator_Small(b *testing.B) {
 }
 
 func BenchmarkFullScoreEvaluator_Medium(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultMediumProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
 	solver := backtracking.New()
 	sol, _, err := solver.Solve(context.Background(), p, problem.SolveOptions{MaxNodes: 100000, SearchMode: problem.SearchModeBasic})
 	if err != nil {
@@ -237,7 +238,7 @@ func BenchmarkFullScoreEvaluator_Medium(b *testing.B) {
 }
 
 func BenchmarkFullScoreEvaluator_Large(b *testing.B) {
-	p := GenerateSyntheticProblem(DefaultLargeProblemConfig())
+	p := testutil.GenerateSyntheticProblem(testutil.DefaultLargeProblemConfig())
 	// Build a valid synthetic solution directly for Large problem scoring
 	sol := problem.NewSolution()
 	slotList := make([]model.TimeSlotID, 0, len(p.TimeSlots))
@@ -289,7 +290,7 @@ func benchmarkScalingByGroups(b *testing.B, numGroups int) {
 	if numClasses < 1 {
 		numClasses = 1
 	}
-	cfg := SyntheticProblemConfig{
+	cfg := testutil.SyntheticProblemConfig{
 		Seed:              int64(numGroups * 17),
 		TenantID:          fmt.Sprintf("tenant-scaling-%d", numGroups),
 		NumDepartments:    1,
@@ -306,7 +307,7 @@ func benchmarkScalingByGroups(b *testing.B, numGroups int) {
 		LabRatio:          0.2,
 	}
 
-	p := GenerateSyntheticProblem(cfg)
+	p := testutil.GenerateSyntheticProblem(cfg)
 
 	// Build a valid solution
 	sol := problem.NewSolution()
@@ -388,7 +389,7 @@ func TestPerformanceMeasurement_EvidenceReport(t *testing.T) {
 
 	// --- 1. Small Problem Measurement ---
 	t.Log("\n--- MEASURING SMALL PROBLEM (~24 sessions) ---")
-	pSmall := GenerateSyntheticProblem(DefaultSmallProblemConfig())
+	pSmall := testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())
 
 	prepStart := time.Now()
 	pSmall.Prepare()
@@ -447,7 +448,7 @@ func TestPerformanceMeasurement_EvidenceReport(t *testing.T) {
 
 	// --- 2. Medium Problem Measurement ---
 	t.Log("\n--- MEASURING MEDIUM PROBLEM (~300 sessions) ---")
-	pMedium := GenerateSyntheticProblem(DefaultMediumProblemConfig())
+	pMedium := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
 
 	prepStart = time.Now()
 	pMedium.Prepare()
@@ -504,7 +505,7 @@ func TestPerformanceMeasurement_EvidenceReport(t *testing.T) {
 
 	// --- 3. Large Problem Measurement ---
 	t.Log("\n--- MEASURING LARGE PROBLEM (~3000 sessions) ---")
-	pLarge := GenerateSyntheticProblem(DefaultLargeProblemConfig())
+	pLarge := testutil.GenerateSyntheticProblem(testutil.DefaultLargeProblemConfig())
 
 	prepStart = time.Now()
 	pLarge.Prepare()
@@ -561,7 +562,7 @@ func TestPerformanceMeasurement_EvidenceReport(t *testing.T) {
 		if numClasses < 1 {
 			numClasses = 1
 		}
-		cfg := SyntheticProblemConfig{
+		cfg := testutil.SyntheticProblemConfig{
 			Seed:              int64(gc * 17),
 			TenantID:          fmt.Sprintf("tenant-scaling-%d", gc),
 			NumDepartments:    1,
@@ -577,7 +578,7 @@ func TestPerformanceMeasurement_EvidenceReport(t *testing.T) {
 			SessionsPerWeek:   3,
 			LabRatio:          0.2,
 		}
-		pScale := GenerateSyntheticProblem(cfg)
+		pScale := testutil.GenerateSyntheticProblem(cfg)
 		solScale := problem.NewSolution()
 		sList := make([]model.TimeSlotID, 0, len(pScale.TimeSlots))
 		for s := range pScale.TimeSlots {

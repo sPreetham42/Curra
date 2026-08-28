@@ -13,6 +13,7 @@ import (
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/testutil"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/backtracking"
 )
 
@@ -475,8 +476,8 @@ func TestCSP_HeuristicInvestigation_Breakdown(t *testing.T) {
 		name string
 		prob problem.Problem
 	}{
-		{"Small_24Sessions", GenerateSyntheticProblem(DefaultSmallProblemConfig())},
-		{"Medium_300Sessions", GenerateSyntheticProblem(DefaultMediumProblemConfig())},
+		{"Small_24Sessions", testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())},
+		{"Medium_300Sessions", testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())},
 	}
 
 	strategies := []HeuristicStrategy{

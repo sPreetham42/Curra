@@ -66,10 +66,13 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 	if len(decisions) == 0 {
 		err = nil
 	} else if options.SearchMode == problem.SearchModeBasic {
-		err = s.searchBasic(ctx, &p, options, decisions, 0, &solution, &diag)
+		sortedRooms := sortedRoomIDs(&p)
+		sortedSlots := sortedTimeSlotIDs(&p)
+		err = s.searchBasic(ctx, &p, options, decisions, sortedRooms, sortedSlots, 0, &solution, &diag)
 	} else {
-		domains := buildInitialDomains(&p, decisions, &solution, s.Constraints, &diag, options.ViolationLimit)
-		err = s.searchHeuristic(ctx, &p, options, decisions, domains, make(map[int]struct{}, len(decisions)), &solution, &diag)
+		domains := buildInitialDomains(&p, decisions, &solution, s.Constraints, s.Compiled, &diag, options.ViolationLimit)
+		roomConflicts := buildRoomConflictMap(&p, decisions)
+		err = s.searchHeuristic(ctx, &p, options, decisions, domains, make(map[int]struct{}, len(decisions)), roomConflicts, &solution, &diag)
 	}
 
 	if err != nil {
@@ -99,24 +102,28 @@ func (s *Solver) ValidateSolution(ctx context.Context, p problem.Problem, soluti
 	diag := diagnostics.Diagnostics{}
 	breakdown := p.StudentGapPenalty(&solution)
 
+	var hardViolations []diagnostics.Violation
 	if s.Compiled != nil && len(s.Compiled.Hard) > 0 {
 		searchCtx := constraints.NewSearchCtx(&p)
-		var hardViolations []diagnostics.Violation
 		for _, c := range s.Compiled.Hard {
 			hardViolations = append(hardViolations, c.Evaluate(searchCtx, &solution)...)
 		}
-
-		if len(hardViolations) > 0 {
-			solution.Score = scorer.Score{
-				HardViolations: len(hardViolations),
-				SoftPenalty:    breakdown.SoftPenalty,
-				Breakdown:      breakdown,
-			}
-			diag.Status = diagnostics.SolveStatusInfeasible
-			diag.Violations = hardViolations
-			diag.Message = ErrNoSolution.Error()
-			return solution, diag, ErrNoSolution
+	} else {
+		for _, a := range solution.Assignments {
+			hardViolations = append(hardViolations, constraints.CheckAll(&p, &solution, a, s.Constraints)...)
 		}
+	}
+
+	if len(hardViolations) > 0 {
+		solution.Score = scorer.Score{
+			HardViolations: len(hardViolations),
+			SoftPenalty:    breakdown.SoftPenalty,
+			Breakdown:      breakdown,
+		}
+		diag.Status = diagnostics.SolveStatusInfeasible
+		diag.Violations = hardViolations
+		diag.Message = ErrNoSolution.Error()
+		return solution, diag, ErrNoSolution
 	}
 
 	solution.Score = scorer.Score{
@@ -131,7 +138,7 @@ func (s *Solver) ValidateSolution(ctx context.Context, p problem.Problem, soluti
 	return solution, diag, nil
 }
 
-func (s *Solver) searchBasic(ctx context.Context, p *problem.Problem, options problem.SolveOptions, decisions []decision, position int, solution *problem.Solution, diag *diagnostics.Diagnostics) error {
+func (s *Solver) searchBasic(ctx context.Context, p *problem.Problem, options problem.SolveOptions, decisions []decision, sortedRooms []model.RoomID, sortedSlots []model.TimeSlotID, position int, solution *problem.Solution, diag *diagnostics.Diagnostics) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -145,11 +152,9 @@ func (s *Solver) searchBasic(ctx context.Context, p *problem.Problem, options pr
 	diag.NodesExplored++
 
 	current := decisions[position]
-	rooms := sortedRoomIDs(p)
-	slots := sortedTimeSlotIDs(p)
 
-	for _, roomID := range rooms {
-		for _, slotID := range slots {
+	for _, roomID := range sortedRooms {
+		for _, slotID := range sortedSlots {
 			slotIDs, ok := p.OccupiedSlotIDs(slotID, current.Requirement.Duration)
 			if !ok {
 				continue
@@ -195,7 +200,7 @@ func (s *Solver) searchBasic(ctx context.Context, p *problem.Problem, options pr
 				return fmt.Errorf("index assignment: %w", err)
 			}
 
-			if err := s.searchBasic(ctx, p, options, decisions, position+1, solution, diag); err == nil {
+			if err := s.searchBasic(ctx, p, options, decisions, sortedRooms, sortedSlots, position+1, solution, diag); err == nil {
 				return nil
 			} else if !errors.Is(err, ErrNoSolution) {
 				return err
@@ -208,7 +213,7 @@ func (s *Solver) searchBasic(ctx context.Context, p *problem.Problem, options pr
 	return ErrNoSolution
 }
 
-func (s *Solver) searchHeuristic(ctx context.Context, p *problem.Problem, options problem.SolveOptions, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, solution *problem.Solution, diag *diagnostics.Diagnostics) error {
+func (s *Solver) searchHeuristic(ctx context.Context, p *problem.Problem, options problem.SolveOptions, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, roomConflicts map[int]map[int]struct{}, solution *problem.Solution, diag *diagnostics.Diagnostics) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -220,7 +225,7 @@ func (s *Solver) searchHeuristic(ctx context.Context, p *problem.Problem, option
 		return ErrNodeLimit
 	}
 
-	selected, ok := selectMRVDegree(p, decisions, domains, assigned)
+	selected, ok := selectMRVDegree(p, decisions, domains, assigned, roomConflicts)
 	if !ok {
 		diag.Backtracks++
 		return ErrNoSolution
@@ -233,7 +238,7 @@ func (s *Solver) searchHeuristic(ctx context.Context, p *problem.Problem, option
 
 	var values []candidate
 	if options.SearchMode == problem.SearchModeHeuristicLCV {
-		values = orderLCV(p, decisions, domains, assigned, selected, solution, s.Constraints)
+		values = orderLCV(p, decisions, domains, assigned, selected, solution, s.Constraints, s.Compiled)
 	} else {
 		values = domains[selected]
 	}
@@ -271,9 +276,9 @@ func (s *Solver) searchHeuristic(ctx context.Context, p *problem.Problem, option
 
 		nextAssigned := copyAssigned(assigned)
 		nextAssigned[selected] = struct{}{}
-		nextDomains, viable := pruneDomains(p, decisions, domains, nextAssigned, solution, s.Constraints)
+		nextDomains, viable := pruneDomains(p, decisions, domains, nextAssigned, solution, s.Constraints, s.Compiled)
 		if viable {
-			if err := s.searchHeuristic(ctx, p, options, decisions, nextDomains, nextAssigned, solution, diag); err == nil {
+			if err := s.searchHeuristic(ctx, p, options, decisions, nextDomains, nextAssigned, roomConflicts, solution, diag); err == nil {
 				return nil
 			} else if !errors.Is(err, ErrNoSolution) {
 				return err
@@ -312,7 +317,7 @@ func buildAssignment(current decision, value candidate) problem.Assignment {
 	}
 }
 
-func buildInitialDomains(p *problem.Problem, decisions []decision, solution *problem.Solution, checks []constraints.Constraint, diag *diagnostics.Diagnostics, violationLimit int) map[int][]candidate {
+func buildInitialDomains(p *problem.Problem, decisions []decision, solution *problem.Solution, checks []constraints.Constraint, compiled *constraints.CompiledConstraintSet, diag *diagnostics.Diagnostics, violationLimit int) map[int][]candidate {
 	domains := make(map[int][]candidate, len(decisions))
 	rooms := sortedRoomIDs(p)
 	slots := sortedTimeSlotIDs(p)
@@ -326,21 +331,23 @@ func buildInitialDomains(p *problem.Problem, decisions []decision, solution *pro
 				}
 				value := candidate{RoomID: roomID, TimeSlotID: slotIDs[0]}
 				a := buildAssignment(current, value)
-				violations := constraints.CheckAll(p, solution, a, checks)
-				if len(violations) == 0 {
-					domains[i] = append(domains[i], value)
-				} else if diag != nil {
-					for _, violation := range violations {
-						diag.AddViolation(violationLimit, violation)
+				if !isAssignmentConsistent(p, solution, a, checks, compiled) {
+					if diag != nil {
+						violations := constraints.CheckAll(p, solution, a, checks)
+						for _, violation := range violations {
+							diag.AddViolation(violationLimit, violation)
+						}
 					}
+					continue
 				}
+				domains[i] = append(domains[i], value)
 			}
 		}
 	}
 	return domains
 }
 
-func selectMRVDegree(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}) (int, bool) {
+func selectMRVDegree(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, roomConflictMap map[int]map[int]struct{}) (int, bool) {
 	best := -1
 	bestDomain := 0
 	bestDegree := -1
@@ -349,7 +356,7 @@ func selectMRVDegree(p *problem.Problem, decisions []decision, domains map[int][
 			continue
 		}
 		size := len(domains[i])
-		degree := degreeFor(p, decisions, assigned, i)
+		degree := degreeFor(p, decisions, assigned, i, roomConflictMap)
 		if best == -1 || size < bestDomain || (size == bestDomain && degree > bestDegree) || (size == bestDomain && degree == bestDegree && decisionLess(decisions[i], decisions[best])) {
 			best = i
 			bestDomain = size
@@ -359,7 +366,7 @@ func selectMRVDegree(p *problem.Problem, decisions []decision, domains map[int][
 	return best, best != -1
 }
 
-func degreeFor(p *problem.Problem, decisions []decision, assigned map[int]struct{}, selected int) int {
+func degreeFor(p *problem.Problem, decisions []decision, assigned map[int]struct{}, selected int, roomConflictMap map[int]map[int]struct{}) int {
 	degree := 0
 	left := decisions[selected]
 	for i, right := range decisions {
@@ -371,12 +378,16 @@ func degreeFor(p *problem.Problem, decisions []decision, assigned map[int]struct
 		}
 		if left.Offering.FacultyID == right.Offering.FacultyID || p.StudentGroupsOverlap(left.Offering.StudentGroupID, right.Offering.StudentGroupID) {
 			degree++
+		} else if roomConflictMap != nil {
+			if _, shares := roomConflictMap[selected][i]; shares {
+				degree++
+			}
 		}
 	}
 	return degree
 }
 
-func orderLCV(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, selected int, solution *problem.Solution, checks []constraints.Constraint) []candidate {
+func orderLCV(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, selected int, solution *problem.Solution, checks []constraints.Constraint, compiled *constraints.CompiledConstraintSet) []candidate {
 	values := append([]candidate(nil), domains[selected]...)
 	type ranked struct {
 		value        candidate
@@ -384,7 +395,7 @@ func orderLCV(p *problem.Problem, decisions []decision, domains map[int][]candid
 	}
 	rankedValues := make([]ranked, 0, len(values))
 	for _, value := range values {
-		eliminations := countEliminations(p, decisions, domains, assigned, selected, value, solution, checks)
+		eliminations := countEliminations(p, decisions, domains, assigned, selected, value, solution, checks, compiled)
 		rankedValues = append(rankedValues, ranked{value: value, eliminations: eliminations})
 	}
 	sort.SliceStable(rankedValues, func(i, j int) bool {
@@ -402,9 +413,9 @@ func orderLCV(p *problem.Problem, decisions []decision, domains map[int][]candid
 	return values
 }
 
-func countEliminations(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, selected int, value candidate, solution *problem.Solution, checks []constraints.Constraint) int {
+func countEliminations(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, selected int, value candidate, solution *problem.Solution, checks []constraints.Constraint, compiled *constraints.CompiledConstraintSet) int {
 	assignment := buildAssignment(decisions[selected], value)
-	if len(constraints.CheckAll(p, solution, assignment, checks)) > 0 {
+	if !isAssignmentConsistent(p, solution, assignment, checks, compiled) {
 		return 1 << 30
 	}
 	if err := solution.AddAssignment(p, assignment); err != nil {
@@ -421,7 +432,7 @@ func countEliminations(p *problem.Problem, decisions []decision, domains map[int
 			continue
 		}
 		for _, other := range values {
-			if len(constraints.CheckAll(p, solution, buildAssignment(decisions[i], other), checks)) > 0 {
+			if !isAssignmentConsistent(p, solution, buildAssignment(decisions[i], other), checks, compiled) {
 				eliminations++
 			}
 		}
@@ -429,7 +440,7 @@ func countEliminations(p *problem.Problem, decisions []decision, domains map[int
 	return eliminations
 }
 
-func pruneDomains(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, solution *problem.Solution, checks []constraints.Constraint) (map[int][]candidate, bool) {
+func pruneDomains(p *problem.Problem, decisions []decision, domains map[int][]candidate, assigned map[int]struct{}, solution *problem.Solution, checks []constraints.Constraint, compiled *constraints.CompiledConstraintSet) (map[int][]candidate, bool) {
 	next := make(map[int][]candidate, len(domains))
 	for i, values := range domains {
 		if _, done := assigned[i]; done {
@@ -437,7 +448,7 @@ func pruneDomains(p *problem.Problem, decisions []decision, domains map[int][]ca
 		}
 		filtered := make([]candidate, 0, len(values))
 		for _, value := range values {
-			if len(constraints.CheckAll(p, solution, buildAssignment(decisions[i], value), checks)) == 0 {
+			if isAssignmentConsistent(p, solution, buildAssignment(decisions[i], value), checks, compiled) {
 				filtered = append(filtered, value)
 			}
 		}
@@ -455,6 +466,81 @@ func copyAssigned(assigned map[int]struct{}) map[int]struct{} {
 		copied[key] = struct{}{}
 	}
 	return copied
+}
+
+// buildRoomConflictMap precomputes which decisions compete for rooms requiring
+// the same features. Two decisions conflict if they both need rooms with
+// overlapping feature requirements (e.g., both need a lab).
+func buildRoomConflictMap(p *problem.Problem, decisions []decision) map[int]map[int]struct{} {
+	if len(decisions) == 0 {
+		return nil
+	}
+	result := make(map[int]map[int]struct{}, len(decisions))
+	for i := range decisions {
+		result[i] = make(map[int]struct{})
+	}
+	// Precompute required features per decision
+	decisionFeatures := make([][]model.RoomFeatureID, len(decisions))
+	for i, d := range decisions {
+		decisionFeatures[i] = p.RequiredRoomFeatures(d.Offering.ID, d.Requirement.ID)
+	}
+	for i := 0; i < len(decisions); i++ {
+		for j := i + 1; j < len(decisions); j++ {
+			if decisions[i].Offering.FacultyID == decisions[j].Offering.FacultyID {
+				continue // already counted by faculty degree
+			}
+			if p.StudentGroupsOverlap(decisions[i].Offering.StudentGroupID, decisions[j].Offering.StudentGroupID) {
+				continue // already counted by group degree
+			}
+			// Two decisions compete for rooms if they have overlapping feature requirements
+			if featuresOverlap(decisionFeatures[i], decisionFeatures[j]) {
+				result[i][j] = struct{}{}
+				result[j][i] = struct{}{}
+			}
+		}
+	}
+	return result
+}
+
+func featuresOverlap(a, b []model.RoomFeatureID) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true // both need any room
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return false // one needs specific features, other doesn't
+	}
+	// Check if there's a room that satisfies both
+	// If both need the same features, they overlap
+	set := make(map[model.RoomFeatureID]struct{}, len(a))
+	for _, f := range a {
+		set[f] = struct{}{}
+	}
+	for _, f := range b {
+		if _, ok := set[f]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// isAssignmentConsistent checks whether a candidate assignment satisfies all
+// active hard constraints (both legacy and compiled). Returns true if no
+// constraint is violated.
+func isAssignmentConsistent(p *problem.Problem, solution *problem.Solution, a problem.Assignment, legacy []constraints.Constraint, compiled *constraints.CompiledConstraintSet) bool {
+	// Check legacy constraints
+	if len(constraints.CheckAll(p, solution, a, legacy)) > 0 {
+		return false
+	}
+	// Check compiled constraints
+	if compiled != nil && len(compiled.Hard) > 0 {
+		searchCtx := constraints.NewSearchCtx(p)
+		for _, c := range compiled.Hard {
+			if !c.IsConsistent(searchCtx, solution, a) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func decisionLess(left decision, right decision) bool {
