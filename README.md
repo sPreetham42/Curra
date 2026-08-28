@@ -1,10 +1,10 @@
 <div align="center">
 
-# Cura
+# Curra
 
 ### A deterministic academic timetabling engine, written in Go.
 
-Cura solves university course scheduling in two clean stages — a **CSP backtracking solver** guarantees a feasible timetable, then a **Tabu Search optimizer** refines it against soft objectives, without ever compromising that feasibility.
+Curra solves university course scheduling in two clean stages — a **CSP backtracking solver** guarantees a feasible timetable, then a **Tabu Search optimizer** refines it against soft objectives, without ever compromising that feasibility.
 
 <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version"></a>
 <a href="https://github.com/sPreetham42/Curra/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
@@ -16,7 +16,7 @@ Cura solves university course scheduling in two clean stages — a **CSP backtra
 
 ## Table of Contents
 
-- [Why Cura](#why-cura)
+- [Why curra](#why-curra)
 - [Architecture](#architecture)
 - [Key Features](#key-features)
 - [Project Structure](#project-structure)
@@ -27,23 +27,23 @@ Cura solves university course scheduling in two clean stages — a **CSP backtra
 
 <br>
 
-## Why Cura
+## Why curra
 
-Most scheduling tools blur *feasibility* and *optimization* together, which makes their output hard to trust. Cura keeps the two strictly separate:
+Most scheduling tools blur *feasibility* and *optimization* together, which makes their output hard to trust. curra keeps the two strictly separate:
 
 | Stage | Responsibility | Guarantee |
 |:---|:---|:---|
 | **1 · Feasibility** | A backtracking CSP solver searches for a timetable that satisfies every hard constraint — faculty conflicts, room capacity, availability, and more | Either returns a feasible timetable, or proves none exists |
 | **2 · Optimization** | A Tabu Search local optimizer takes that feasible timetable and improves it against soft objectives, such as minimizing student idle gaps | Never reintroduces a hard-constraint violation |
 
-The result: every solution Cura reports as `SOLVED` is provably correct *before* it's ever optimized.
+The result: every solution curra reports as `SOLVED` is provably correct *before* it's ever optimized.
 
 <br>
 
 ## Architecture
 
 ```
-                          CURA PLATFORM ENGINE
+                          curra PLATFORM ENGINE
 ┌──────────────────┐   ┌───────────────────────┐   ┌──────────────────────┐
 │   Domain Model    │   │  Configurable Rules   │   │   Hard Constraints   │
 │ Programs, Rooms,  │   │ ConstraintInstance,   │   │ Faculty / Room /     │
