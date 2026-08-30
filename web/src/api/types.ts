@@ -2,120 +2,213 @@
 
 export interface User {
   id: string;
+  ID?: string;
   email: string;
+  Email?: string;
   name: string;
+  Name?: string;
 }
 
 export interface Institution {
   id: string;
+  ID?: string;
   name: string;
-  slug: string;
+  Name?: string;
+  slug?: string;
+  Slug?: string;
 }
 
 export interface AuthMeResponse {
-  user: User;
-  institution: Institution;
-  role: string;
+  user?: User;
+  User?: User;
+  institution?: Institution;
+  Institution?: Institution;
+  role?: string;
+  Role?: string;
 }
 
 export interface Timetable {
   id: string;
-  institutionId: string;
+  ID?: string;
+  institutionId?: string;
+  InstitutionID?: string;
   name: string;
+  Name?: string;
   currentPublishedVersionId?: string;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
+  CurrentPublishedVersionID?: string;
+  version?: number;
+  Version?: number;
+  createdAt?: string;
+  CreatedAt?: string;
+  updatedAt?: string;
+  UpdatedAt?: string;
 }
 
 export interface ProblemSnapshot {
   id: string;
-  timetableId: string;
-  institutionId: string;
-  schemaVersion: number;
-  inputHash: string;
-  createdBy: string;
-  createdAt: string;
+  ID?: string;
+  timetableId?: string;
+  TimetableID?: string;
+  institutionId?: string;
+  InstitutionID?: string;
+  schemaVersion?: number;
+  SchemaVersion?: number;
+  inputHash?: string;
+  InputHash?: string;
+  createdBy?: string;
+  CreatedBy?: string;
+  createdAt?: string;
+  CreatedAt?: string;
 }
 
 export interface ObjectiveComponentScore {
   id: string;
-  rawScore: number;
-  weight: number;
-  weightedScore: number;
+  ID?: string;
+  rawScore?: number;
+  RawScore?: number;
+  weight?: number;
+  Weight?: number;
+  weightedScore?: number;
+  WeightedScore?: number;
 }
 
 export interface ScoreBreakdown {
   hardViolations: number;
+  HardViolations?: number;
   softPenalty: number;
+  SoftPenalty?: number;
   studentGapPenalty?: number;
+  StudentGapPenalty?: number;
   facultyPreferencePenalty?: number;
+  FacultyPreferencePenalty?: number;
   roomChangePenalty?: number;
+  RoomChangePenalty?: number;
   components?: ObjectiveComponentScore[];
+  Components?: ObjectiveComponentScore[];
 }
 
 export interface Violation {
   constraintName: string;
+  ConstraintName?: string;
   severity: 'HARD' | 'SOFT';
+  Severity?: 'HARD' | 'SOFT';
   message: string;
+  Message?: string;
   assignmentId?: string;
+  AssignmentID?: string;
   relatedIds?: Record<string, string>;
+  RelatedIDs?: Record<string, string>;
   metadata?: Record<string, string>;
+  Metadata?: Record<string, string>;
 }
 
 export interface ScheduleRun {
   id: string;
-  timetableId: string;
-  institutionId: string;
-  snapshotId: string;
+  ID?: string;
+  timetableId?: string;
+  TimetableID?: string;
+  institutionId?: string;
+  InstitutionID?: string;
+  snapshotId?: string;
+  SnapshotID?: string;
   status: 'QUEUED' | 'RUNNING' | 'SOLVED' | 'INFEASIBLE' | 'INVALID_PROBLEM' | 'INVALID_RESULT' | 'CANCELLED' | 'DEADLINE_EXCEEDED' | 'NODE_LIMIT' | 'FAILED';
+  Status?: 'QUEUED' | 'RUNNING' | 'SOLVED' | 'INFEASIBLE' | 'INVALID_PROBLEM' | 'INVALID_RESULT' | 'CANCELLED' | 'DEADLINE_EXCEEDED' | 'NODE_LIMIT' | 'FAILED';
   seed?: number;
+  Seed?: number;
   curraVersion?: string;
+  CurrAVersion?: string;
   diagnostics?: {
-    status: string;
-    nodesExplored: number;
-    candidates: number;
-    backtracks: number;
+    status?: string;
+    Status?: string;
+    nodesExplored?: number;
+    NodesExplored?: number;
+    candidates?: number;
+    Candidates?: number;
+    backtracks?: number;
+    Backtracks?: number;
     message?: string;
+    Message?: string;
+  };
+  Diagnostics?: {
+    status?: string;
+    Status?: string;
+    nodesExplored?: number;
+    NodesExplored?: number;
+    candidates?: number;
+    Candidates?: number;
+    backtracks?: number;
+    Backtracks?: number;
+    message?: string;
+    Message?: string;
   };
   score?: ScoreBreakdown;
+  Score?: ScoreBreakdown;
   violations?: Violation[];
+  Violations?: Violation[];
   startedAt?: string;
+  StartedAt?: string;
   finishedAt?: string;
+  FinishedAt?: string;
   durationMs?: number;
-  createdAt: string;
-  version: number;
+  DurationMs?: number;
+  createdAt?: string;
+  CreatedAt?: string;
+  version?: number;
+  Version?: number;
 }
 
 export type VersionStatus = 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED';
 
 export interface ScheduleVersion {
   id: string;
-  timetableId: string;
-  institutionId: string;
+  ID?: string;
+  timetableId?: string;
+  TimetableID?: string;
+  institutionId?: string;
+  InstitutionID?: string;
   sourceRunId?: string;
-  snapshotId: string;
+  SourceRunID?: string;
+  snapshotId?: string;
+  SnapshotID?: string;
   status: VersionStatus;
+  Status?: VersionStatus;
   name: string;
+  Name?: string;
   score?: ScoreBreakdown;
+  Score?: ScoreBreakdown;
   version: number;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
+  Version?: number;
+  createdBy?: string;
+  CreatedBy?: string;
+  createdAt?: string;
+  CreatedAt?: string;
+  updatedAt?: string;
+  UpdatedAt?: string;
 }
 
 export interface ScheduleAssignment {
-  id: string;
-  versionId: string;
-  assignmentId: string;
-  courseOfferingId: string;
-  sessionRequirementId: string;
-  studentGroupId: string;
-  facultyId: string;
-  roomId: string;
-  timeSlotId: string;
-  instance: number;
-  createdAt: string;
+  id?: string;
+  ID?: string;
+  versionId?: string;
+  VersionID?: string;
+  assignmentId?: string;
+  AssignmentID?: string;
+  courseOfferingId?: string;
+  CourseOfferingID?: string;
+  sessionRequirementId?: string;
+  SessionRequirementID?: string;
+  studentGroupId?: string;
+  StudentGroupID?: string;
+  facultyId?: string;
+  FacultyID?: string;
+  roomId?: string;
+  RoomID?: string;
+  timeSlotId?: string;
+  TimeSlotID?: string;
+  instance?: number;
+  Instance?: number;
+  createdAt?: string;
+  CreatedAt?: string;
 }
 
 export interface PlacementDTO {
@@ -151,15 +244,22 @@ export interface MoveResponse {
 
 export interface RoomEntity {
   id: string;
+  ID?: string;
   name: string;
+  Name?: string;
   capacity: number;
+  Capacity?: number;
 }
 
 export interface TimeSlotEntity {
   id: string;
+  ID?: string;
   day: string;
+  Day?: string;
   period: number;
+  Period?: number;
   label: string;
+  Label?: string;
 }
 
 export interface APIError {

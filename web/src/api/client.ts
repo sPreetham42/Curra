@@ -69,7 +69,11 @@ async function request<T>(
     return {} as T;
   }
 
-  return response.json();
+  const json = await response.json();
+  if (json && typeof json === 'object' && 'data' in json) {
+    return json.data as T;
+  }
+  return json as T;
 }
 
 export const api = {
