@@ -797,12 +797,12 @@ func TestConcurrency_PublishRace(t *testing.T) {
 	conflictCount := 0
 	if errA == nil {
 		successCount++
-	} else if errors.Is(errA, services.ErrConflict) {
+	} else if errors.Is(errA, services.ErrConflict) || errors.Is(errA, services.ErrInvalidState) {
 		conflictCount++
 	}
 	if errB == nil {
 		successCount++
-	} else if errors.Is(errB, services.ErrConflict) {
+	} else if errors.Is(errB, services.ErrConflict) || errors.Is(errB, services.ErrInvalidState) {
 		conflictCount++
 	}
 

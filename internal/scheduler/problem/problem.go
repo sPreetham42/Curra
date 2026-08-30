@@ -87,6 +87,122 @@ func (p *Problem) StudentGapPenaltyWithConfig(solution *Solution, cfg scorer.Obj
 	return scorer.CalculateStudentGapPenaltyWithConfig(groups, occupied, cfg)
 }
 
+// FacultyPreferencePenalty computes the faculty preference penalty for the solution without mutating anything.
+func (p *Problem) FacultyPreferencePenalty(solution *Solution) scorer.ScoreBreakdown {
+	return p.FacultyPreferencePenaltyWithConfig(solution, scorer.DefaultObjectiveConfig())
+}
+
+// FacultyPreferencePenaltyWithConfig computes the faculty preference penalty for the solution with the provided objective config.
+func (p *Problem) FacultyPreferencePenaltyWithConfig(solution *Solution, cfg scorer.ObjectiveConfig) scorer.ScoreBreakdown {
+	if solution == nil || len(solution.Assignments) == 0 || len(p.FacultyPreferences) == 0 {
+		return scorer.ScoreBreakdown{}
+	}
+
+	var occupancies []scorer.FacultySlotOccupancy
+	for _, a := range solution.Assignments {
+		slotIDs, ok := a.OccupiedSlotIDs(p)
+		if !ok {
+			continue
+		}
+		for _, sid := range slotIDs {
+			occupancies = append(occupancies, scorer.FacultySlotOccupancy{
+				FacultyID:  a.FacultyID,
+				TimeSlotID: sid,
+			})
+		}
+	}
+
+	return scorer.CalculateFacultyPreferencePenaltyWithConfig(p.FacultyPreferences, occupancies, cfg)
+}
+
+// RoomChangePenaltyWithConfig computes room change penalties for the solution under the specified objective config.
+func (p *Problem) RoomChangePenaltyWithConfig(solution *Solution, cfg scorer.ObjectiveConfig) scorer.ScoreBreakdown {
+	if len(solution.Assignments) == 0 {
+		return scorer.ScoreBreakdown{}
+	}
+
+	var sessions []scorer.OccupiedSession
+	for _, a := range solution.Assignments {
+		slot, ok := p.TimeSlots[a.TimeSlotID]
+		if !ok {
+			continue
+		}
+		duration := 1
+		if req, ok := p.SessionRequirements[a.SessionRequirementID]; ok && req.Duration > 0 {
+			duration = req.Duration
+		}
+		if slot.Period+duration-1 > p.PeriodsPerDay {
+			continue
+		}
+		sessions = append(sessions, scorer.OccupiedSession{
+			SessionID:      string(a.ID),
+			StudentGroupID: a.StudentGroupID,
+			Day:            slot.Day,
+			StartPeriod:    slot.Period,
+			EndPeriod:      slot.Period + duration - 1,
+			RoomID:         a.RoomID,
+		})
+	}
+
+	return scorer.CalculateRoomChangePenaltyWithConfig(sessions, cfg)
+}
+
+// CalculateScore computes all soft objective penalties for the solution.
+func (p *Problem) CalculateScore(solution *Solution) scorer.ScoreBreakdown {
+	return p.CalculateScoreWithConfig(solution, scorer.DefaultObjectiveConfig())
+}
+
+// CalculateScoreWithConfig computes all soft objective penalties for the solution with the provided objective config.
+func (p *Problem) CalculateScoreWithConfig(solution *Solution, cfg scorer.ObjectiveConfig) scorer.ScoreBreakdown {
+	gapBreakdown := p.StudentGapPenaltyWithConfig(solution, cfg)
+	prefBreakdown := p.FacultyPreferencePenaltyWithConfig(solution, cfg)
+	rcBreakdown := p.RoomChangePenaltyWithConfig(solution, cfg)
+
+	totalSoft := gapBreakdown.SoftPenalty + prefBreakdown.SoftPenalty + rcBreakdown.SoftPenalty
+	var components []scorer.ObjectiveComponentScore
+
+	gapWeight := cfg.GetWeight(scorer.ObjectiveStudentGapPenalty)
+	if gapWeight > 0 {
+		components = append(components, scorer.ObjectiveComponentScore{
+			ID:            scorer.ObjectiveStudentGapPenalty,
+			RawScore:      gapBreakdown.StudentGapPenalty,
+			Weight:        gapWeight,
+			WeightedScore: gapBreakdown.SoftPenalty,
+		})
+	}
+
+	prefWeight := cfg.GetWeight(scorer.ObjectiveFacultyPreference)
+	if prefWeight > 0 {
+		components = append(components, scorer.ObjectiveComponentScore{
+			ID:            scorer.ObjectiveFacultyPreference,
+			RawScore:      prefBreakdown.FacultyPreferencePenalty,
+			Weight:        prefWeight,
+			WeightedScore: prefBreakdown.SoftPenalty,
+		})
+	}
+
+	rcWeight := cfg.GetWeight(scorer.ObjectiveRoomChange)
+	if rcWeight > 0 {
+		components = append(components, scorer.ObjectiveComponentScore{
+			ID:            scorer.ObjectiveRoomChange,
+			RawScore:      rcBreakdown.RoomChangePenalty,
+			Weight:        rcWeight,
+			WeightedScore: rcBreakdown.SoftPenalty,
+		})
+	}
+
+	return scorer.ScoreBreakdown{
+		HardViolations:           0,
+		SoftPenalty:              totalSoft,
+		StudentGapPenalty:        gapBreakdown.StudentGapPenalty,
+		FacultyPreferencePenalty: prefBreakdown.FacultyPreferencePenalty,
+		RoomChangePenalty:        rcBreakdown.RoomChangePenalty,
+		GroupGaps:                gapBreakdown.GroupGaps,
+		Details:                  gapBreakdown.Details,
+		Components:               components,
+	}
+}
+
 // Prepare builds derived indexes used by constraints and the solver.
 func (p *Problem) Prepare() {
 	p.BuildSlotIndex()

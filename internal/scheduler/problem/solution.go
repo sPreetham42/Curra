@@ -61,7 +61,7 @@ func (s Solution) Clone() Solution {
 
 // CalculateScore evaluates the solution against the problem soft constraints without mutating anything.
 func (s *Solution) CalculateScore(p *Problem) scorer.ScoreBreakdown {
-	return p.StudentGapPenalty(s)
+	return p.CalculateScore(s)
 }
 
 // AddAssignment appends and indexes an assignment.

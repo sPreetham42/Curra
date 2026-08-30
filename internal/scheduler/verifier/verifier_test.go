@@ -10,10 +10,11 @@ import (
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/scorer"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/backtracking"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/localsearch"
-	"github.com/sPreetham42/timetable-platform/internal/scheduler/verifier"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/testutil"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/verifier"
 )
 
 // Helper to generate a valid solved solution on small problem.
@@ -35,10 +36,6 @@ func getSolvedSmallInstance(t *testing.T) (problem.Problem, problem.Solution) {
 
 	return p, sol
 }
-
-// ----------------------------------------------------------------------------
-// 14 PERMANENT UNIT TESTS FOR VERIFIER FAILURE MODES & SUCCESS
-// ----------------------------------------------------------------------------
 
 func TestVerifier_1_MissingOneSessionRequirementAssignment(t *testing.T) {
 	p, sol := getSolvedSmallInstance(t)
@@ -386,6 +383,60 @@ func TestRandomizedVerificationProperty(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
+// ADVERSARIAL VERIFIER INDEPENDENCE TEST
+// ----------------------------------------------------------------------------
+
+func TestVerifier_AdversarialScorerDecoupling(t *testing.T) {
+	p, sol := getSolvedSmallInstance(t)
+	p.FacultyPreferences = []model.FacultyPreference{
+		{FacultyID: sol.Assignments[0].FacultyID, TimeSlotID: sol.Assignments[0].TimeSlotID, Weight: 10},
+	}
+
+	// 1. Valid recalculation using independent verifier
+	fullScore := p.CalculateScore(&sol)
+	sol.Score = scorer.Score{
+		HardViolations: 0,
+		SoftPenalty:    fullScore.SoftPenalty,
+		Breakdown:      fullScore,
+	}
+
+	report, err := verifier.VerifySolution(&p, &sol, verifier.VerifyOptions{})
+	if err != nil || !report.Valid {
+		t.Fatalf("Valid solution failed verification: %v (report=%+v)", err, report)
+	}
+
+	// 2. Simulate a production scorer bug where FacultyPreferencePenalty reported in solution is wrong (e.g. 99 instead of 10)
+	tamperedSol := sol.Clone()
+	tamperedSol.Score.Breakdown.FacultyPreferencePenalty = 99
+	tamperedSol.Score.SoftPenalty = tamperedSol.Score.Breakdown.StudentGapPenalty + 99
+
+	tamperedReport, tamperedErr := verifier.VerifySolution(&p, &tamperedSol, verifier.VerifyOptions{})
+	if tamperedErr == nil || tamperedReport.Valid {
+		t.Fatal("Verifier failed to catch tampered FacultyPreferencePenalty!")
+	}
+
+	// 3. Simulate a production scorer bug where StudentGapPenalty reported in solution is wrong
+	tamperedGapSol := sol.Clone()
+	tamperedGapSol.Score.Breakdown.StudentGapPenalty += 5
+	tamperedGapSol.Score.SoftPenalty += 5
+
+	tamperedGapReport, tamperedGapErr := verifier.VerifySolution(&p, &tamperedGapSol, verifier.VerifyOptions{})
+	if tamperedGapErr == nil || tamperedGapReport.Valid {
+		t.Fatal("Verifier failed to catch tampered StudentGapPenalty!")
+	}
+
+	// 4. Simulate a production scorer bug where RoomChangePenalty reported in solution is wrong
+	tamperedRCSol := sol.Clone()
+	tamperedRCSol.Score.Breakdown.RoomChangePenalty += 7
+	tamperedRCSol.Score.SoftPenalty += 7
+
+	tamperedRCReport, tamperedRCErr := verifier.VerifySolution(&p, &tamperedRCSol, verifier.VerifyOptions{})
+	if tamperedRCErr == nil || tamperedRCReport.Valid {
+		t.Fatal("Verifier failed to catch tampered RoomChangePenalty!")
+	}
+}
+
+// ----------------------------------------------------------------------------
 // BENCHMARK: VERIFICATION OVERHEAD ON SMALL, MEDIUM, LARGE INSTANCES
 // ----------------------------------------------------------------------------
 
@@ -440,7 +491,7 @@ func TestBenchmarkVerifierOverhead(t *testing.T) {
 		}
 	}
 	sLarge.Score.HardViolations = 0
-	expectedLarge := pLarge.StudentGapPenalty(&sLarge)
+	expectedLarge := pLarge.CalculateScore(&sLarge)
 	sLarge.Score.SoftPenalty = expectedLarge.SoftPenalty
 	sLarge.Score.Breakdown = expectedLarge
 

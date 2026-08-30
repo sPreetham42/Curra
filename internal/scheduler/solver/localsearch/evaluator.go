@@ -13,7 +13,7 @@ type ScoreEvaluator interface {
 	Evaluate(p *problem.Problem, solution *problem.Solution) scorer.ScoreBreakdown
 }
 
-// FullScoreEvaluator calculates full student gap penalty with optional objective weighting.
+// FullScoreEvaluator calculates full soft penalty with optional objective weighting.
 type FullScoreEvaluator struct {
 	Config scorer.ObjectiveConfig
 }
@@ -23,7 +23,7 @@ func (e FullScoreEvaluator) Evaluate(p *problem.Problem, solution *problem.Solut
 	if len(cfg.Components) == 0 {
 		cfg = scorer.DefaultObjectiveConfig()
 	}
-	return p.StudentGapPenaltyWithConfig(solution, cfg)
+	return p.CalculateScoreWithConfig(solution, cfg)
 }
 
 // EvaluationResult contains the validation and scoring results of evaluating a candidate move.

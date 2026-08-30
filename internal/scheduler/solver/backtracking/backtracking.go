@@ -100,7 +100,7 @@ func (s *Solver) Solve(ctx context.Context, p problem.Problem, options problem.S
 // ValidateSolution executes the final compiled HARD constraint evaluation pipeline on a solution.
 func (s *Solver) ValidateSolution(ctx context.Context, p problem.Problem, solution problem.Solution) (problem.Solution, diagnostics.Diagnostics, error) {
 	diag := diagnostics.Diagnostics{}
-	breakdown := p.StudentGapPenalty(&solution)
+	breakdown := p.CalculateScore(&solution)
 
 	var hardViolations []diagnostics.Violation
 	if s.Compiled != nil && len(s.Compiled.Hard) > 0 {

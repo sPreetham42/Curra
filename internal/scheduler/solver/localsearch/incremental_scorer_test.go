@@ -1,20 +1,14 @@
 package localsearch_test
 
 import (
-	"context"
 	"math/rand"
 	"testing"
 
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/model"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/problem"
-	"github.com/sPreetham42/timetable-platform/internal/scheduler/testutil"
-	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/backtracking"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/solver/localsearch"
+	"github.com/sPreetham42/timetable-platform/internal/scheduler/testutil"
 )
-
-// ----------------------------------------------------------------------------
-// 1. Known Case Unit Tests
-// ----------------------------------------------------------------------------
 
 func TestIncrementalScorer_KnownCases(t *testing.T) {
 	// Case 1: Pure CalculateDayGaps unit tests
@@ -563,32 +557,110 @@ func BenchmarkScorer_IncrementalDelta_Large(b *testing.B) {
 	}
 }
 
-// ----------------------------------------------------------------------------
-// 7. Comparative Micro-Benchmarks: Tabu Search Optimization
-// ----------------------------------------------------------------------------
-
-func BenchmarkTabuOptimization_IncrementalScoring_Medium(b *testing.B) {
+func TestIncrementalScorer_MultiObjective_DifferentialParity(t *testing.T) {
 	p := testutil.GenerateSyntheticProblem(testutil.DefaultMediumProblemConfig())
-	solver := backtracking.New()
-	sol, _, err := solver.Solve(context.Background(), p, problem.SolveOptions{MaxNodes: 100000, SearchMode: problem.SearchModeBasic})
-	if err != nil {
-		b.Fatalf("CSP solve failed: %v", err)
+	slotList := make([]model.TimeSlotID, 0, len(p.TimeSlots))
+	for s := range p.TimeSlots {
+		slotList = append(slotList, s)
+	}
+	facList := make([]model.FacultyID, 0, len(p.Faculty))
+	for f := range p.Faculty {
+		facList = append(facList, f)
 	}
 
-	opts := localsearch.TabuSearchOptions{
-		MaxIterations:      30,
-		NoImprovementLimit: 15,
-		TabuTenure:         7,
-		MaxCandidates:      50,
-		Seed:               42,
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _, err := localsearch.TabuSearch(context.Background(), &p, sol, opts)
-		if err != nil {
-			b.Fatalf("TabuSearch failed: %v", err)
+	rng := rand.New(rand.NewSource(99999))
+	for _, f := range facList {
+		for k := 0; k < 3; k++ {
+			randSlot := slotList[rng.Intn(len(slotList))]
+			randWeight := rng.Intn(10) + 1
+			p.FacultyPreferences = append(p.FacultyPreferences, model.FacultyPreference{
+				FacultyID:  f,
+				TimeSlotID: randSlot,
+				Weight:     randWeight,
+			})
 		}
+	}
+
+	sol := problem.NewSolution()
+	roomList := make([]model.RoomID, 0, len(p.Rooms))
+	for r := range p.Rooms {
+		roomList = append(roomList, r)
+	}
+	slotIdx, roomIdx := 0, 0
+	for _, req := range p.SessionRequirements {
+		offering := p.CourseOfferings[req.CourseOfferingID]
+		for inst := 0; inst < req.SessionsPerWeek; inst++ {
+			_ = sol.AddAssignment(&p, problem.Assignment{
+				ID:                   problem.NewAssignmentID(req.ID, inst),
+				CourseOfferingID:     offering.ID,
+				StudentGroupID:       offering.StudentGroupID,
+				FacultyID:            offering.FacultyID,
+				RoomID:               roomList[roomIdx%len(roomList)],
+				TimeSlotID:           slotList[slotIdx%len(slotList)],
+				SessionRequirementID: req.ID,
+				Instance:             inst,
+			})
+			slotIdx++
+			roomIdx++
+		}
+	}
+
+	fullEvaluator := localsearch.FullScoreEvaluator{}
+	incEvaluator := localsearch.NewIncrementalScoreEvaluator(&p, &sol)
+
+	// Verify initial breakdown equality
+	fullInit := fullEvaluator.Evaluate(&p, &sol)
+	incInit := incEvaluator.Evaluate(&p, &sol)
+
+	if fullInit.SoftPenalty != incInit.SoftPenalty {
+		t.Fatalf("Initial soft penalty mismatch: Full=%d, Inc=%d", fullInit.SoftPenalty, incInit.SoftPenalty)
+	}
+	if fullInit.FacultyPreferencePenalty != incInit.FacultyPreferencePenalty {
+		t.Fatalf("Initial faculty pref penalty mismatch: Full=%d, Inc=%d", fullInit.FacultyPreferencePenalty, incInit.FacultyPreferencePenalty)
+	}
+	if fullInit.RoomChangePenalty != incInit.RoomChangePenalty {
+		t.Fatalf("Initial room change penalty mismatch: Full=%d, Inc=%d", fullInit.RoomChangePenalty, incInit.RoomChangePenalty)
+	}
+	if fullInit.StudentGapPenalty != incInit.StudentGapPenalty {
+		t.Fatalf("Initial gap penalty mismatch: Full=%d, Inc=%d", fullInit.StudentGapPenalty, incInit.StudentGapPenalty)
+	}
+
+	// Test 100 random moves & mutations
+	currentSol := sol.Clone()
+	for i := 0; i < 100; i++ {
+		randIdx := rng.Intn(len(currentSol.Assignments))
+		a := currentSol.Assignments[randIdx]
+		randSlot := slotList[rng.Intn(len(slotList))]
+		randRoom := roomList[rng.Intn(len(roomList))]
+
+		cm := localsearch.CandidateMove{
+			Kind:        localsearch.MoveKindSingle,
+			Assignment1: a.ID,
+			From1:       problem.Placement{RoomID: a.RoomID, TimeSlotID: a.TimeSlotID},
+			To1:         problem.Placement{RoomID: randRoom, TimeSlotID: randSlot},
+		}
+
+		res := incEvaluator.EvaluateCandidateMove(&p, &currentSol, cm)
+
+		tempSol := currentSol.Clone()
+		_ = tempSol.ApplyMove(&p, problem.Move{AssignmentID: a.ID, From: cm.From1, To: cm.To1})
+		fullScore := fullEvaluator.Evaluate(&p, &tempSol)
+
+		if res.SoftPenalty != fullScore.SoftPenalty {
+			t.Fatalf("Move %d soft penalty mismatch: Inc=%d, Full=%d", i, res.SoftPenalty, fullScore.SoftPenalty)
+		}
+		if res.FacultyPreferencePenalty != fullScore.FacultyPreferencePenalty {
+			t.Fatalf("Move %d pref penalty mismatch: Inc=%d, Full=%d", i, res.FacultyPreferencePenalty, fullScore.FacultyPreferencePenalty)
+		}
+		if res.RoomChangePenalty != fullScore.RoomChangePenalty {
+			t.Fatalf("Move %d room change penalty mismatch: Inc=%d, Full=%d", i, res.RoomChangePenalty, fullScore.RoomChangePenalty)
+		}
+		if res.StudentGapPenalty != fullScore.StudentGapPenalty {
+			t.Fatalf("Move %d gap penalty mismatch: Inc=%d, Full=%d", i, res.StudentGapPenalty, fullScore.StudentGapPenalty)
+		}
+
+		// Apply candidate move to state
+		_ = currentSol.ApplyMove(&p, problem.Move{AssignmentID: a.ID, From: cm.From1, To: cm.To1})
+		incEvaluator.ApplyCandidateMove(&p, &currentSol, cm)
 	}
 }

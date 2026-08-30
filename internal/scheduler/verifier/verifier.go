@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/constraints"
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/diagnostics"
@@ -337,7 +338,7 @@ func VerifySolution(p *problem.Problem, solution *problem.Solution, opts VerifyO
 		objConfig = *opts.ObjectiveConfig
 	}
 
-	expectedBreakdown := p.StudentGapPenaltyWithConfig(solution, objConfig)
+	expectedBreakdown := calculateIndependentScore(p, solution, objConfig)
 	expectedHardViolations := len(hardViolations)
 
 	if solution.Score.HardViolations != expectedHardViolations {
@@ -361,6 +362,22 @@ func VerifySolution(p *problem.Problem, solution *problem.Solution, opts VerifyO
 			ConstraintName: "ScoreConsistency",
 			Severity:       diagnostics.SeverityHard,
 			Message:        fmt.Sprintf("reported StudentGapPenalty (%d) does not match authoritative calculation (%d)", solution.Score.Breakdown.StudentGapPenalty, expectedBreakdown.StudentGapPenalty),
+		})
+	}
+
+	if solution.Score.Breakdown.FacultyPreferencePenalty != expectedBreakdown.FacultyPreferencePenalty {
+		integrityViolations = append(integrityViolations, diagnostics.Violation{
+			ConstraintName: "ScoreConsistency",
+			Severity:       diagnostics.SeverityHard,
+			Message:        fmt.Sprintf("reported FacultyPreferencePenalty (%d) does not match authoritative calculation (%d)", solution.Score.Breakdown.FacultyPreferencePenalty, expectedBreakdown.FacultyPreferencePenalty),
+		})
+	}
+
+	if solution.Score.Breakdown.RoomChangePenalty != expectedBreakdown.RoomChangePenalty {
+		integrityViolations = append(integrityViolations, diagnostics.Violation{
+			ConstraintName: "ScoreConsistency",
+			Severity:       diagnostics.SeverityHard,
+			Message:        fmt.Sprintf("reported RoomChangePenalty (%d) does not match authoritative calculation (%d)", solution.Score.Breakdown.RoomChangePenalty, expectedBreakdown.RoomChangePenalty),
 		})
 	}
 
@@ -418,4 +435,182 @@ func VerifySolution(p *problem.Problem, solution *problem.Solution, opts VerifyO
 		Violations: allViolations,
 		Message:    fmt.Sprintf("solution failed hard constraint verification with %d violations", len(allViolations)),
 	}, ErrHardConstraintViolation
+}
+
+// calculateIndependentScore independently recalculates the soft score breakdown directly from raw solution assignments,
+// ensuring authoritative verifier independence from the production engine scoring implementation.
+func calculateIndependentScore(p *problem.Problem, solution *problem.Solution, cfg scorer.ObjectiveConfig) scorer.ScoreBreakdown {
+	// 1. Independent Faculty Preference Penalty Calculation
+	prefMap := make(map[model.FacultyID]map[model.TimeSlotID]int)
+	for _, pref := range p.FacultyPreferences {
+		if prefMap[pref.FacultyID] == nil {
+			prefMap[pref.FacultyID] = make(map[model.TimeSlotID]int)
+		}
+		prefMap[pref.FacultyID][pref.TimeSlotID] += pref.Weight
+	}
+
+	rawPref := 0
+	for _, a := range solution.Assignments {
+		slotIDs, ok := a.OccupiedSlotIDs(p)
+		if !ok {
+			continue
+		}
+		if slots, ok := prefMap[a.FacultyID]; ok {
+			for _, sid := range slotIDs {
+				if w, ok := slots[sid]; ok {
+					rawPref += w
+				}
+			}
+		}
+	}
+
+	// 2. Independent Student Gap Penalty Calculation
+	type groupDayKey struct {
+		groupID model.StudentGroupID
+		day     int
+	}
+	gridMap := make(map[groupDayKey][]uint16)
+
+	for _, a := range solution.Assignments {
+		slot, hasSlot := p.TimeSlots[a.TimeSlotID]
+		if !hasSlot {
+			continue
+		}
+		duration := 1
+		if req, hasReq := p.SessionRequirements[a.SessionRequirementID]; hasReq && req.Duration > 0 {
+			duration = req.Duration
+		}
+
+		key := groupDayKey{groupID: a.StudentGroupID, day: int(slot.Day)}
+		counts, exists := gridMap[key]
+		if !exists {
+			counts = make([]uint16, p.PeriodsPerDay+1)
+			gridMap[key] = counts
+		}
+
+		for i := 0; i < duration; i++ {
+			period := slot.Period + i
+			if period <= p.PeriodsPerDay {
+				gridMap[key][period]++
+			}
+		}
+	}
+
+	rawGap := 0
+	groupGaps := make(map[model.StudentGroupID]int)
+	for key, counts := range gridMap {
+		minP := -1
+		maxP := -1
+		occupiedCount := 0
+		for pIdx := 1; pIdx < len(counts); pIdx++ {
+			if counts[pIdx] > 0 {
+				if minP == -1 {
+					minP = pIdx
+				}
+				maxP = pIdx
+				occupiedCount += int(counts[pIdx])
+			}
+		}
+		if minP != -1 && maxP != -1 && maxP > minP {
+			totalSpan := (maxP - minP) + 1
+			dayGaps := totalSpan - occupiedCount
+			if dayGaps > 0 {
+				rawGap += dayGaps
+				groupGaps[key.groupID] += dayGaps
+			}
+		}
+	}
+
+	// 3. Independent Room Change Penalty Calculation
+	type verifierSession struct {
+		groupID     model.StudentGroupID
+		day         int
+		startPeriod int
+		roomID      model.RoomID
+	}
+	rcGrid := make(map[groupDayKey][]verifierSession)
+	for _, a := range solution.Assignments {
+		slot, hasSlot := p.TimeSlots[a.TimeSlotID]
+		if !hasSlot {
+			continue
+		}
+		duration := 1
+		if req, ok := p.SessionRequirements[a.SessionRequirementID]; ok && req.Duration > 0 {
+			duration = req.Duration
+		}
+		if slot.Period+duration-1 > p.PeriodsPerDay {
+			continue
+		}
+		key := groupDayKey{groupID: a.StudentGroupID, day: int(slot.Day)}
+		rcGrid[key] = append(rcGrid[key], verifierSession{
+			groupID:     a.StudentGroupID,
+			day:         int(slot.Day),
+			startPeriod: slot.Period,
+			roomID:      a.RoomID,
+		})
+	}
+
+	rawRC := 0
+	for _, list := range rcGrid {
+		if len(list) < 2 {
+			continue
+		}
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].startPeriod != list[j].startPeriod {
+				return list[i].startPeriod < list[j].startPeriod
+			}
+			return list[i].roomID < list[j].roomID
+		})
+		for i := 0; i < len(list)-1; i++ {
+			if list[i].roomID != list[i+1].roomID {
+				rawRC++
+			}
+		}
+	}
+
+	// 4. Weighting & Component Assembly
+	gapWeight := cfg.GetWeight(scorer.ObjectiveStudentGapPenalty)
+	prefWeight := cfg.GetWeight(scorer.ObjectiveFacultyPreference)
+	rcWeight := cfg.GetWeight(scorer.ObjectiveRoomChange)
+
+	weightedGap := rawGap * gapWeight
+	weightedPref := rawPref * prefWeight
+	weightedRC := rawRC * rcWeight
+	totalSoft := weightedGap + weightedPref + weightedRC
+
+	var components []scorer.ObjectiveComponentScore
+	if gapWeight > 0 {
+		components = append(components, scorer.ObjectiveComponentScore{
+			ID:            scorer.ObjectiveStudentGapPenalty,
+			RawScore:      rawGap,
+			Weight:        gapWeight,
+			WeightedScore: weightedGap,
+		})
+	}
+	if prefWeight > 0 {
+		components = append(components, scorer.ObjectiveComponentScore{
+			ID:            scorer.ObjectiveFacultyPreference,
+			RawScore:      rawPref,
+			Weight:        prefWeight,
+			WeightedScore: weightedPref,
+		})
+	}
+	if rcWeight > 0 {
+		components = append(components, scorer.ObjectiveComponentScore{
+			ID:            scorer.ObjectiveRoomChange,
+			RawScore:      rawRC,
+			Weight:        rcWeight,
+			WeightedScore: weightedRC,
+		})
+	}
+
+	return scorer.ScoreBreakdown{
+		HardViolations:           0,
+		SoftPenalty:              totalSoft,
+		StudentGapPenalty:        rawGap,
+		FacultyPreferencePenalty: rawPref,
+		RoomChangePenalty:        rawRC,
+		GroupGaps:                groupGaps,
+		Components:               components,
+	}
 }
