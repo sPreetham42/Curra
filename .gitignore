@@ -31,3 +31,8 @@ Thumbs.db
 *~
 .freebuff/
 
+# Local environment secret files
+.env
+.env.local
+.env.*
+!.env.example

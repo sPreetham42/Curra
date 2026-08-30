@@ -1,8 +1,10 @@
 package database
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -15,6 +17,7 @@ type Config struct {
 }
 
 func LoadConfig() Config {
+	loadDotEnv()
 	return Config{
 		Host:     getEnv("DB_HOST", "localhost"),
 		Port:     getEnv("DB_PORT", "5432"),
@@ -22,6 +25,33 @@ func LoadConfig() Config {
 		Password: getEnv("DB_PASSWORD", ""),
 		Name:     getEnv("DB_NAME", "curra"),
 		SSLMode:  getEnv("DB_SSLMODE", "disable"),
+	}
+}
+
+func loadDotEnv() {
+	paths := []string{".env", ".env.local", "../.env", "../.env.local", "application/.env", "application/.env.local"}
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				val := strings.TrimSpace(parts[1])
+				val = strings.Trim(val, `"'`)
+				if os.Getenv(key) == "" {
+					_ = os.Setenv(key, val)
+				}
+			}
+		}
+		_ = file.Close()
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,14 +71,14 @@ func (s *SnapshotService) CreateSnapshot(ctx context.Context, timetableID uuid.U
 		},
 		"Departments":           mapFromDepts(depts),
 		"Programs":              mapFromProgs(progs),
-		"Classes":               mapFromClasses(cls),
+		"Classes":               mapFromClasses(cls, sgs),
 		"StudentGroups":         mapFromSGs(sgs),
 		"Subjects":              mapFromSubjs(subj),
 		"Faculty":               mapFromFac(fac),
 		"Rooms":                 mapFromRooms(rooms),
 		"RoomFeatures":          mapFromRF(rf),
 		"TimeSlots":             mapFromTS(ts),
-		"CourseOfferings":       mapFromCOs(cos),
+		"CourseOfferings":       mapFromCOs(cos, srs),
 		"SessionRequirements":   mapFromSRs(srs),
 		"FacultyAvailabilities": mapFromFA(faList),
 		"RoomAvailabilities":    mapFromRA(raList),
@@ -170,15 +171,28 @@ func mapFromProgs(items []domain.Program) map[string]any {
 	return res
 }
 
-func mapFromClasses(items []domain.Class) map[string]any {
+func mapFromClasses(items []domain.Class, sgs []domain.StudentGroup) map[string]any {
 	res := make(map[string]any, len(items))
 	for _, c := range items {
+		var sgIDs []string
+		var wholeGroupID string
+		for _, g := range sgs {
+			if g.ClassID == c.ID {
+				sgIDs = append(sgIDs, g.ID.String())
+				if g.IsWholeGroup || wholeGroupID == "" {
+					wholeGroupID = g.ID.String()
+				}
+			}
+		}
+		if sgIDs == nil {
+			sgIDs = []string{}
+		}
 		res[c.ID.String()] = map[string]any{
 			"ID":              c.ID.String(),
 			"ProgramID":       c.ProgramID.String(),
 			"Name":            c.Name,
-			"WholeGroupID":    "",
-			"StudentGroupIDs": []string{},
+			"WholeGroupID":    wholeGroupID,
+			"StudentGroupIDs": sgIDs,
 		}
 	}
 	return res
@@ -251,7 +265,7 @@ func mapFromTS(items []domain.TimeSlot) map[string]any {
 	for _, t := range items {
 		res[t.ID.String()] = map[string]any{
 			"ID":     t.ID.String(),
-			"Day":    t.Day,
+			"Day":    parseDay(t.Day),
 			"Period": t.Period,
 			"Label":  t.Label,
 		}
@@ -259,9 +273,39 @@ func mapFromTS(items []domain.TimeSlot) map[string]any {
 	return res
 }
 
-func mapFromCOs(items []domain.CourseOffering) map[string]any {
+func parseDay(dayStr string) int {
+	switch strings.ToLower(dayStr) {
+	case "sunday", "sun", "0":
+		return 0
+	case "monday", "mon", "1":
+		return 1
+	case "tuesday", "tue", "tues", "2":
+		return 2
+	case "wednesday", "wed", "3":
+		return 3
+	case "thursday", "thu", "thur", "thurs", "4":
+		return 4
+	case "friday", "fri", "5":
+		return 5
+	case "saturday", "sat", "6":
+		return 6
+	default:
+		return 1
+	}
+}
+
+func mapFromCOs(items []domain.CourseOffering, srs []domain.SessionRequirement) map[string]any {
 	res := make(map[string]any, len(items))
 	for _, co := range items {
+		var srIDs []string
+		for _, sr := range srs {
+			if sr.CourseOfferingID == co.ID {
+				srIDs = append(srIDs, sr.ID.String())
+			}
+		}
+		if srIDs == nil {
+			srIDs = []string{}
+		}
 		res[co.ID.String()] = map[string]any{
 			"ID":                     co.ID.String(),
 			"TermID":                 co.TermID.String(),
@@ -270,7 +314,7 @@ func mapFromCOs(items []domain.CourseOffering) map[string]any {
 			"StudentGroupID":         co.StudentGroupID.String(),
 			"FacultyID":              co.FacultyID.String(),
 			"RequiredRoomFeatureIDs": []string{},
-			"SessionRequirementIDs":  []string{},
+			"SessionRequirementIDs":  srIDs,
 		}
 	}
 	return res
