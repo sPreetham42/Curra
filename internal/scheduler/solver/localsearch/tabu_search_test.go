@@ -246,8 +246,6 @@ func TestTabuSearch_StopsAtMaxIterations(t *testing.T) {
 // -------------------------------------------------------------
 func TestTabuSearch_RespectsContextCancellation(t *testing.T) {
 	p, solution := testutil.LocalSearchTestProblem()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
 
 	opts := localsearch.TabuSearchOptions{
 		MaxIterations:      10000,
@@ -257,14 +255,47 @@ func TestTabuSearch_RespectsContextCancellation(t *testing.T) {
 		Seed:               444,
 	}
 
-	_, diag, err := localsearch.TabuSearch(ctx, &p, solution, opts)
-	if err != nil {
-		t.Fatalf("TabuSearch error: %v", err)
-	}
+	t.Run("ContextCanceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Pre-cancel context
 
-	if diag.Iterations > 1 {
-		t.Fatalf("expected 0 or 1 iterations on cancelled context, got %d", diag.Iterations)
-	}
+		sol, diag, err := localsearch.TabuSearch(ctx, &p, solution, opts)
+		if err != nil {
+			t.Fatalf("TabuSearch returned unexpected error: %v", err)
+		}
+		if diag.Status != diagnostics.SolveStatusCancelled {
+			t.Fatalf("expected status CANCELLED, got %s", diag.Status)
+		}
+		if diag.Iterations != 0 {
+			t.Fatalf("expected 0 iterations on pre-cancelled context, got %d", diag.Iterations)
+		}
+		if sol.Score.HardViolations != 0 {
+			t.Fatalf("expected 0 hard violations, got %d", sol.Score.HardViolations)
+		}
+		if len(sol.Assignments) != len(solution.Assignments) {
+			t.Fatalf("expected %d assignments, got %d", len(solution.Assignments), len(sol.Assignments))
+		}
+	})
+
+	t.Run("ContextDeadlineExceeded", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Guarantee deadline is exceeded
+		defer cancel()
+
+		sol, diag, err := localsearch.TabuSearch(ctx, &p, solution, opts)
+		if err != nil {
+			t.Fatalf("TabuSearch returned unexpected error: %v", err)
+		}
+		if diag.Status != diagnostics.SolveStatusDeadlineExceeded {
+			t.Fatalf("expected status DEADLINE_EXCEEDED, got %s", diag.Status)
+		}
+		if diag.Iterations != 0 {
+			t.Fatalf("expected 0 iterations on pre-expired context, got %d", diag.Iterations)
+		}
+		if sol.Score.HardViolations != 0 {
+			t.Fatalf("expected 0 hard violations, got %d", sol.Score.HardViolations)
+		}
+	})
 }
 
 // -------------------------------------------------------------
