@@ -19,6 +19,10 @@ import (
 
 // Red-Team Attack 1: 1,000+ Randomized Moves and Swaps Parity Audit
 func TestRedTeam_1000RandomizedMutationsParity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 1,000-mutation fuzz test in short mode")
+	}
+
 	seeds := []int64{42, 12345, 99999, 777777}
 
 	for _, seed := range seeds {

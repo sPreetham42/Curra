@@ -383,6 +383,10 @@ func BenchmarkFullScoreEvaluator_Scaling_500Groups(b *testing.B) {
 // ----------------------------------------------------------------------------
 
 func TestPerformanceMeasurement_EvidenceReport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping performance baseline evidence report in short mode")
+	}
+
 	t.Log("================================================================================")
 	t.Log("CURA PERFORMANCE BASELINE & EVIDENCE MEASUREMENT SUITE")
 	t.Log("================================================================================")

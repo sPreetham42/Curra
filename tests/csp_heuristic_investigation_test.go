@@ -472,6 +472,10 @@ func pruneCSPDomains(p *problem.Problem, decisions []cspDecision, domains map[in
 // ----------------------------------------------------------------------------
 
 func TestCSP_HeuristicInvestigation_Breakdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping CSP heuristic investigation benchmark in short mode")
+	}
+
 	fixtures := []struct {
 		name string
 		prob problem.Problem

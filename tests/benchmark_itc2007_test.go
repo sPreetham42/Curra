@@ -483,6 +483,10 @@ END.
 `
 
 func TestITC2007_BenchmarkExecutionAndQuality(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ITC2007 dataset benchmark in short mode")
+	}
+
 	benchmarks := []struct {
 		name      string
 		raw       string

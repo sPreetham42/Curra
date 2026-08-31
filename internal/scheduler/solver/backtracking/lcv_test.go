@@ -173,6 +173,10 @@ func TestLCVContainment_LockedAssignmentsPreserved(t *testing.T) {
 }
 
 func TestBenchmarkComparativeHeuristics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heuristic comparative benchmark in short mode")
+	}
+
 	type runResult struct {
 		name       string
 		mode       problem.SearchMode

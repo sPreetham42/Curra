@@ -299,6 +299,10 @@ func TestVerifier_Integration_CSP_Tabu_VerifySolution(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 func TestRandomizedVerificationProperty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 500-trial randomized verifier corruption fuzzing in short mode")
+	}
+
 	pBase := testutil.GenerateSyntheticProblem(testutil.DefaultSmallProblemConfig())
 	pBase.Prepare()
 
@@ -441,6 +445,10 @@ func TestVerifier_AdversarialScorerDecoupling(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 func TestBenchmarkVerifierOverhead(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping verifier performance benchmark in short mode")
+	}
+
 	type benchTarget struct {
 		name     string
 		sessions int
