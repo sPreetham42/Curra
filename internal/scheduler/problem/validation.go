@@ -25,6 +25,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		dept := p.Departments[id]
 		if dept.ID == "" {
 			violations = append(violations, validationViolation("department has empty ID", map[string]string{"departmentMapKey": string(id)}, nil))
+		} else if dept.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("department", "departmentMapKey", string(id), string(dept.ID)))
 		}
 	}
 
@@ -32,6 +34,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		prog := p.Programs[id]
 		if prog.ID == "" {
 			violations = append(violations, validationViolation("program has empty ID", map[string]string{"programMapKey": string(id)}, nil))
+		} else if prog.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("program", "programMapKey", string(id), string(prog.ID)))
 		}
 		if prog.DepartmentID == "" || !hasDepartment(p, prog.DepartmentID) {
 			violations = append(violations, validationViolation("program references missing department", map[string]string{"programId": string(id), "departmentId": string(prog.DepartmentID)}, nil))
@@ -42,6 +46,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		f := p.Faculty[id]
 		if f.ID == "" {
 			violations = append(violations, validationViolation("faculty has empty ID", map[string]string{"facultyMapKey": string(id)}, nil))
+		} else if f.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("faculty", "facultyMapKey", string(id), string(f.ID)))
 		}
 	}
 
@@ -49,6 +55,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		subj := p.Subjects[id]
 		if subj.ID == "" {
 			violations = append(violations, validationViolation("subject has empty ID", map[string]string{"subjectMapKey": string(id)}, nil))
+		} else if subj.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("subject", "subjectMapKey", string(id), string(subj.ID)))
 		}
 	}
 
@@ -56,6 +64,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		feat := p.RoomFeatures[id]
 		if feat.ID == "" {
 			violations = append(violations, validationViolation("room feature has empty ID", map[string]string{"roomFeatureMapKey": string(id)}, nil))
+		} else if feat.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("room feature", "roomFeatureMapKey", string(id), string(feat.ID)))
 		}
 	}
 
@@ -63,6 +73,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		class := p.Classes[id]
 		if class.ID == "" {
 			violations = append(violations, validationViolation("class has empty ID", map[string]string{"classMapKey": string(id)}, nil))
+		} else if class.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("class", "classMapKey", string(id), string(class.ID)))
 		}
 		if class.ProgramID == "" || !hasProgram(p, class.ProgramID) {
 			violations = append(violations, validationViolation("class references missing program", map[string]string{"classId": string(id), "programId": string(class.ProgramID)}, nil))
@@ -104,6 +116,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		group := p.StudentGroups[id]
 		if group.ID == "" {
 			violations = append(violations, validationViolation("student group has empty ID", map[string]string{"studentGroupMapKey": string(id)}, nil))
+		} else if group.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("student group", "studentGroupMapKey", string(id), string(group.ID)))
 		}
 		if group.ClassID == "" || !hasClass(p, group.ClassID) {
 			violations = append(violations, validationViolation("student group references missing class", map[string]string{"studentGroupId": string(id), "classId": string(group.ClassID)}, nil))
@@ -117,6 +131,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		offering := p.CourseOfferings[id]
 		if offering.ID == "" {
 			violations = append(violations, validationViolation("course offering has empty ID", map[string]string{"courseOfferingMapKey": string(id)}, nil))
+		} else if offering.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("course offering", "courseOfferingMapKey", string(id), string(offering.ID)))
 		}
 		if offering.TermID == "" || offering.TermID != p.Term.ID {
 			violations = append(violations, validationViolation("course offering references invalid term", map[string]string{"courseOfferingId": string(id), "termId": string(offering.TermID)}, nil))
@@ -185,9 +201,20 @@ func Validate(p Problem) []diagnostics.Violation {
 		requirement := p.SessionRequirements[id]
 		if requirement.ID == "" {
 			violations = append(violations, validationViolation("session requirement has empty ID", map[string]string{"sessionRequirementMapKey": string(id)}, nil))
+		} else if requirement.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("session requirement", "sessionRequirementMapKey", string(id), string(requirement.ID)))
 		}
 		if requirement.CourseOfferingID == "" || !hasCourseOffering(p, requirement.CourseOfferingID) {
 			violations = append(violations, validationViolation("session requirement references missing course offering", map[string]string{"sessionRequirementId": string(id), "courseOfferingId": string(requirement.CourseOfferingID)}, nil))
+		} else if owner := p.CourseOfferings[requirement.CourseOfferingID]; !offeringContainsRequirement(owner, id) {
+			// The offering -> requirement direction is checked above; without this reverse
+			// membership check an orphan requirement reaches the solver, is expanded into
+			// session decisions the offering never declared, and only surfaces as an
+			// INVALID_RESULT at verification time.
+			violations = append(violations, validationViolation("session requirement is not listed on its course offering", map[string]string{
+				"sessionRequirementId": string(id),
+				"courseOfferingId":     string(requirement.CourseOfferingID),
+			}, nil))
 		}
 		if requirement.SessionsPerWeek <= 0 {
 			violations = append(violations, validationViolation("session requirement has non-positive sessions per week", map[string]string{"sessionRequirementId": string(id)}, map[string]string{"sessionsPerWeek": fmt.Sprintf("%d", requirement.SessionsPerWeek)}))
@@ -216,6 +243,8 @@ func Validate(p Problem) []diagnostics.Violation {
 		room := p.Rooms[id]
 		if room.ID == "" {
 			violations = append(violations, validationViolation("room has empty ID", map[string]string{"roomMapKey": string(id)}, nil))
+		} else if room.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("room", "roomMapKey", string(id), string(room.ID)))
 		}
 		if room.Capacity < 0 {
 			violations = append(violations, validationViolation("room has negative capacity", map[string]string{"roomId": string(id)}, map[string]string{"capacity": fmt.Sprintf("%d", room.Capacity)}))
@@ -232,9 +261,16 @@ func Validate(p Problem) []diagnostics.Violation {
 		slot := p.TimeSlots[id]
 		if slot.ID == "" {
 			violations = append(violations, validationViolation("time slot has empty ID", map[string]string{"timeSlotMapKey": string(id)}, nil))
+		} else if slot.ID != id {
+			violations = append(violations, catalogKeyMismatchViolation("time slot", "timeSlotMapKey", string(id), string(slot.ID)))
 		}
 		if slot.Period <= 0 {
 			violations = append(violations, validationViolation("time slot has non-positive period", map[string]string{"timeSlotId": string(id)}, map[string]string{"period": fmt.Sprintf("%d", slot.Period)}))
+		} else if p.PeriodsPerDay > 0 && slot.Period > p.PeriodsPerDay {
+			violations = append(violations, validationViolation("time slot period exceeds periods per day", map[string]string{"timeSlotId": string(id)}, map[string]string{
+				"period":        fmt.Sprintf("%d", slot.Period),
+				"periodsPerDay": fmt.Sprintf("%d", p.PeriodsPerDay),
+			}))
 		}
 		key := slot.Key()
 		if existingID, exists := seenSlots[key]; exists {
@@ -294,6 +330,16 @@ func Validate(p Problem) []diagnostics.Violation {
 		}
 		if !hasTimeSlot(p, preference.TimeSlotID) {
 			violations = append(violations, validationViolation("faculty preference references missing time slot", map[string]string{"facultyId": string(preference.FacultyID), "timeSlotId": string(preference.TimeSlotID)}, nil))
+		}
+		// Weight is consumed as an additive soft penalty (scorer.CalculateFacultyPreferencePenaltyWithConfig
+		// sums it into the raw penalty). A negative weight would turn the objective into a
+		// reward and could drive the total soft penalty below zero, which the objective
+		// weight validation in engine.Solve already refuses for the same reason.
+		if preference.Weight < 0 {
+			violations = append(violations, validationViolation("faculty preference has negative weight", map[string]string{
+				"facultyId":  string(preference.FacultyID),
+				"timeSlotId": string(preference.TimeSlotID),
+			}, map[string]string{"weight": fmt.Sprintf("%d", preference.Weight)}))
 		}
 	}
 
@@ -468,6 +514,27 @@ func validationViolation(message string, related map[string]string, metadata map
 		RelatedIDs:     related,
 		Metadata:       metadata,
 	}
+}
+
+// catalogKeyMismatchViolation reports an ID-keyed catalog map whose key does not
+// match the entity's own ID. Every catalog lookup in the engine treats the map key
+// as the entity's identity, so a mismatch makes the wrong identifier resolvable
+// (and the entity's real ID unresolvable) throughout validation, search, scoring,
+// and verification.
+func catalogKeyMismatchViolation(entity string, keyField string, key string, entityID string) diagnostics.Violation {
+	return validationViolation(entity+" map key does not match entity ID", map[string]string{
+		keyField:   key,
+		"entityId": entityID,
+	}, nil)
+}
+
+func offeringContainsRequirement(offering model.CourseOffering, requirementID model.SessionRequirementID) bool {
+	for _, id := range offering.SessionRequirementIDs {
+		if id == requirementID {
+			return true
+		}
+	}
+	return false
 }
 
 func classContainsGroup(class model.Class, groupID model.StudentGroupID) bool {

@@ -83,6 +83,33 @@ func (s *Solution) RemoveLastAssignment(p *Problem) {
 	s.Index.Remove(p, last)
 }
 
+// BuildIndexFromAssignments deterministically reconstructs a SolutionIndex from raw
+// assignments alone, without consulting any previously maintained index state.
+//
+// Unlike SolutionIndex.Add it never rejects a conflicting assignment: when several
+// assignments occupy the same resource slot the last one in the slice owns the slot
+// entry, which leaves every other occupant of that slot observably in conflict.
+// That property makes it the authoritative construction path for verification, where
+// solver-maintained index state must never be trusted; the incremental Add/Remove
+// pair remains the search-time structure.
+func BuildIndexFromAssignments(p *Problem, assignments []Assignment) SolutionIndex {
+	idx := NewSolutionIndex()
+	for _, a := range assignments {
+		idx.byID[a.ID] = a
+		idx.RequirementCount[a.SessionRequirementID]++
+		slotIDs, ok := a.OccupiedSlotIDs(p)
+		if !ok {
+			continue
+		}
+		for _, sid := range slotIDs {
+			idx.FacultySlot[facultyKey(a.FacultyID, sid)] = a.ID
+			idx.RoomSlot[roomKey(a.RoomID, sid)] = a.ID
+			idx.StudentGroupSlot[groupKey(a.StudentGroupID, sid)] = a.ID
+		}
+	}
+	return idx
+}
+
 // SolutionIndex supports O(1) conflict and count lookups.
 type SolutionIndex struct {
 	FacultySlot      map[resourceSlotKey]AssignmentID

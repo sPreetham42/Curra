@@ -367,37 +367,45 @@ func (p *Problem) OccupiedSlotIDs(startSlot model.TimeSlotID, duration int) ([]m
 	return ids, true
 }
 
-// BuildSlotIndex populates SlotsByDayPeriod from TimeSlots.
+// BuildSlotIndex rebuilds SlotsByDayPeriod from TimeSlots. The map is rebuilt from
+// scratch on every call so a repeated Prepare() cannot retain entries for slots that
+// were removed or moved to a different day/period. When two slots share a
+// (Day, Period) key — which Validate rejects — the lexicographically smallest
+// TimeSlotID wins, keeping the derived index deterministic regardless of map order.
 func (p *Problem) BuildSlotIndex() {
-	if p.SlotsByDayPeriod == nil {
-		p.SlotsByDayPeriod = make(map[model.SlotKey]model.TimeSlotID, len(p.TimeSlots))
-	}
+	index := make(map[model.SlotKey]model.TimeSlotID, len(p.TimeSlots))
 	for id, slot := range p.TimeSlots {
-		p.SlotsByDayPeriod[slot.Key()] = id
+		key := slot.Key()
+		if existing, ok := index[key]; ok && existing < id {
+			continue
+		}
+		index[key] = id
 	}
+	p.SlotsByDayPeriod = index
 }
 
-// BuildAvailabilityIndexes populates explicit allow-list indexes from
-// availability records when the indexes were not supplied directly.
+// BuildAvailabilityIndexes rebuilds the explicit allow-list indexes from the
+// authoritative availability records. Like BuildSlotIndex the maps are rebuilt from
+// scratch, so availability added, changed, or removed after an earlier Prepare() is
+// reflected exactly and no stale entry survives.
 func (p *Problem) BuildAvailabilityIndexes() {
-	if p.FacultyAvailable == nil {
-		p.FacultyAvailable = make(map[model.FacultyID]map[model.TimeSlotID]struct{})
-		for _, availability := range p.FacultyAvailabilities {
-			if p.FacultyAvailable[availability.FacultyID] == nil {
-				p.FacultyAvailable[availability.FacultyID] = make(map[model.TimeSlotID]struct{})
-			}
-			p.FacultyAvailable[availability.FacultyID][availability.TimeSlotID] = struct{}{}
+	facultyAvailable := make(map[model.FacultyID]map[model.TimeSlotID]struct{}, len(p.FacultyAvailable))
+	for _, availability := range p.FacultyAvailabilities {
+		if facultyAvailable[availability.FacultyID] == nil {
+			facultyAvailable[availability.FacultyID] = make(map[model.TimeSlotID]struct{})
 		}
+		facultyAvailable[availability.FacultyID][availability.TimeSlotID] = struct{}{}
 	}
-	if p.RoomAvailable == nil {
-		p.RoomAvailable = make(map[model.RoomID]map[model.TimeSlotID]struct{})
-		for _, availability := range p.RoomAvailabilities {
-			if p.RoomAvailable[availability.RoomID] == nil {
-				p.RoomAvailable[availability.RoomID] = make(map[model.TimeSlotID]struct{})
-			}
-			p.RoomAvailable[availability.RoomID][availability.TimeSlotID] = struct{}{}
+	p.FacultyAvailable = facultyAvailable
+
+	roomAvailable := make(map[model.RoomID]map[model.TimeSlotID]struct{}, len(p.RoomAvailable))
+	for _, availability := range p.RoomAvailabilities {
+		if roomAvailable[availability.RoomID] == nil {
+			roomAvailable[availability.RoomID] = make(map[model.TimeSlotID]struct{})
 		}
+		roomAvailable[availability.RoomID][availability.TimeSlotID] = struct{}{}
 	}
+	p.RoomAvailable = roomAvailable
 }
 
 // IsFacultyAvailable reports whether faculty is available for all given slots.

@@ -312,10 +312,23 @@ func VerifySolution(p *problem.Problem, solution *problem.Solution, opts VerifyO
 	}
 
 	// 7. Hard Constraint Compliance
+	//
+	// Hard constraints are evaluated against a verification-owned occupancy index
+	// rebuilt from the raw assignments. Several built-in constraints answer conflict
+	// questions through Solution.Index, which is solver-maintained state that is
+	// absent on a JSON-deserialized solution (Index is not serialised) and on any
+	// solution assembled without incremental index construction. Trusting it would
+	// let an invalid solution verify clean purely because its index was missing.
+	verifiedSolution := problem.Solution{
+		Assignments: solution.Assignments,
+		Index:       problem.BuildIndexFromAssignments(p, solution.Assignments),
+		Score:       solution.Score,
+	}
+
 	searchCtx := constraints.NewSearchCtx(p)
 	if opts.Compiled != nil && len(opts.Compiled.Hard) > 0 {
 		for _, c := range opts.Compiled.Hard {
-			hardViolations = append(hardViolations, c.Evaluate(searchCtx, solution)...)
+			hardViolations = append(hardViolations, c.Evaluate(searchCtx, &verifiedSolution)...)
 		}
 	} else {
 		defaultHard := []constraints.ConstraintDef{
@@ -328,7 +341,7 @@ func VerifySolution(p *problem.Problem, solution *problem.Solution, opts VerifyO
 			constraints.NewRoomAvailabilityConstraint(constraints.ConstraintInstance{}),
 		}
 		for _, c := range defaultHard {
-			hardViolations = append(hardViolations, c.Evaluate(searchCtx, solution)...)
+			hardViolations = append(hardViolations, c.Evaluate(searchCtx, &verifiedSolution)...)
 		}
 	}
 
