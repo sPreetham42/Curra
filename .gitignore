@@ -29,7 +29,13 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# Local AI tooling (personal agent context — not project source)
 .freebuff/
+.claude/
+
+# Graphify knowledge graph output (regenerated locally; never committed)
+graphify-out/
 
 # Local environment secret files
 .env
