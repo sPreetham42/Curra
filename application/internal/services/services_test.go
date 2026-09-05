@@ -443,10 +443,10 @@ type mockCurraAdapter struct{}
 
 func (a *mockCurraAdapter) Solve(ctx context.Context, req curra.SolveRequest) (curra.SolveResponse, error) {
 	return curra.SolveResponse{
-		Status:      "SOLVED",
-		Solution:    json.RawMessage(`{"assignments":[{"id":"sr-1#0","courseOfferingId":"co-1","sessionRequirementId":"sr-1","studentGroupId":"sg-1","facultyId":"fac-1","roomId":"room-1","timeSlotId":"ts-1","instance":0}]}`),
-		Score:       curra.ScoreDTO{HardViolations: 0, SoftPenalty: 0},
-		RuleSetHash: "mock-hash",
+		Status:   "SOLVED",
+		Solution: json.RawMessage(`{"assignments":[{"id":"sr-1#0","courseOfferingId":"co-1","sessionRequirementId":"sr-1","studentGroupId":"sg-1","facultyId":"fac-1","roomId":"room-1","timeSlotId":"ts-1","instance":0}]}`),
+		Score:    curra.ScoreDTO{HardViolations: 0, SoftPenalty: 0},
+		Metadata: curra.SolveMetadata{RuleSetHash: "mock-hash"},
 	}, nil
 }
 func (a *mockCurraAdapter) Verify(ctx context.Context, req curra.VerifyRequest) (curra.VerifyResponse, error) {

@@ -196,6 +196,14 @@ type AuditEventRepo interface {
 	ListByInstitution(ctx context.Context, instID uuid.UUID, limit int) ([]domain.AuditEvent, error)
 }
 
+// EngineSnapshotRepo persists immutable engine-version-tagged snapshots of
+// the exact engine input and output captured during a run. Snapshots are
+// append-only; no update path is exposed.
+type EngineSnapshotRepo interface {
+	Create(ctx context.Context, snap domain.EngineSnapshot) error
+	GetByRunID(ctx context.Context, runID uuid.UUID) (domain.EngineSnapshot, error)
+}
+
 // Repos aggregates all repositories.
 type Repos struct {
 	Institutions        InstitutionRepo
@@ -224,6 +232,7 @@ type Repos struct {
 	ScheduleAssignments ScheduleAssignmentRepo
 	AuditEvents         AuditEventRepo
 	Idempotency         IdempotencyRepo
+	EngineSnapshots     EngineSnapshotRepo
 }
 
 // NewRepos creates all repository implementations backed by PostgreSQL.
@@ -255,5 +264,6 @@ func NewRepos(pool *pgxpool.Pool) *Repos {
 		ScheduleAssignments: &scheduleAssignmentRepo{pool: pool},
 		AuditEvents:         &auditEventRepo{pool: pool},
 		Idempotency:         &idempotencyRepo{pool: pool},
+		EngineSnapshots:     &engineSnapshotRepo{pool: pool},
 	}
 }

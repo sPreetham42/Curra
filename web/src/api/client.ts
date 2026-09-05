@@ -191,4 +191,33 @@ export const api = {
   async listTimeSlots(): Promise<TimeSlotEntity[]> {
     return request<TimeSlotEntity[]>('/api/v1/time-slots');
   },
+
+  // Phase 1 Vertical Slice — synchronous end-to-end solve job.
+  // The job runs inline; the response is the canonical application result.
+  async createSolveJob(
+    timetableId: string,
+    snapshotId?: string,
+    seed?: number
+  ): Promise<{ runId: string; result: import('./types').SolveJobResult }> {
+    return request<{ runId: string; result: import('./types').SolveJobResult }>(
+      '/api/v1/solve-jobs',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          timetableId,
+          snapshotId: snapshotId || null,
+          seed: seed ?? 0,
+          useSeed: seed !== undefined,
+        }),
+      }
+    );
+  },
+
+  async getSolveJob(jobId: string): Promise<import('./types').SolveJob> {
+    return request<import('./types').SolveJob>(`/api/v1/solve-jobs/${jobId}`);
+  },
+
+  async getSolveJobResult(jobId: string): Promise<import('./types').SolveJobResult> {
+    return request<import('./types').SolveJobResult>(`/api/v1/solve-jobs/${jobId}/result`);
+  },
 };

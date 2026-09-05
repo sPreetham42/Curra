@@ -57,6 +57,7 @@ func main() {
 	moveSwapSvc := services.NewMoveSwapService(repos, adapter)
 	verificationSvc := services.NewVerificationService(repos, adapter)
 	catalogSvc := services.NewCatalogService(repos)
+	sliceSvc := services.NewSliceService(repos, adapter)
 
 	// Create handlers & router
 	h := handlers.New(
@@ -68,6 +69,7 @@ func main() {
 		moveSwapSvc,
 		verificationSvc,
 		catalogSvc,
+		sliceSvc,
 	)
 	authMiddleware := middleware.NewAuthMiddleware()
 	router := api.NewRouter(h, authMiddleware)

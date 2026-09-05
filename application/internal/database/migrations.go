@@ -456,3 +456,21 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_institution ON audit_events(institution_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_events(resource_type, resource_id);`
+
+const createEngineSnapshots = `
+CREATE TABLE IF NOT EXISTS engine_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    schedule_run_id UUID NOT NULL REFERENCES schedule_runs(id) ON DELETE CASCADE,
+    snapshot_id UUID NOT NULL REFERENCES problem_snapshots(id) ON DELETE CASCADE,
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    engine_version TEXT NOT NULL,
+    engine_commit TEXT NOT NULL,
+    adapter_version TEXT NOT NULL,
+    rule_set_hash TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    request JSONB NOT NULL,
+    response JSONB NOT NULL,
+    diagnostics JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_engine_snapshots_run ON engine_snapshots(schedule_run_id);`

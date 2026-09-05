@@ -267,3 +267,66 @@ export interface APIError {
   message: string;
   details?: any;
 }
+
+// Phase 1 Vertical Slice — minimal application-owned result types.
+
+export type SolveJobStatus =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'SOLVED'
+  | 'INFEASIBLE'
+  | 'INVALID_PROBLEM'
+  | 'INVALID_RESULT'
+  | 'FAILED';
+
+export interface SolveJob {
+  runId: string;
+  snapshotId: string;
+  timetableId: string;
+  institutionId: string;
+  status: SolveJobStatus;
+  verificationOk: boolean;
+  verificationStale?: boolean;
+  startedAt: string;
+  completedAt?: string;
+  seed: number;
+  engineVersion: string;
+  engineCommit: string;
+}
+
+export interface SolveJobAssignment {
+  assignmentId: string;
+  courseOfferingId: string;
+  sessionRequirementId: string;
+  studentGroupId: string;
+  facultyId: string;
+  roomId: string;
+  timeSlotId: string;
+  instance: number;
+}
+
+export interface SolveJobResult {
+  runId: string;
+  snapshotId: string;
+  status: SolveJobStatus;
+  verified: boolean;
+  verifierOk: boolean;
+  hardViolations: number;
+  softPenalty: number;
+  assignments: SolveJobAssignment[];
+  diagnostics: {
+    nodesExplored: number;
+    backtracks: number;
+    message?: string;
+  };
+  metadata: {
+    engineVersion: string;
+    engineCommit: string;
+    adapterVersion: string;
+    buildAt: string;
+    ruleSetHash: string;
+    inputHash: string;
+    seed: number;
+  };
+  createdAt: string;
+}

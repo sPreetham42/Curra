@@ -35,14 +35,22 @@ type SolveRequest struct {
 	SearchMode       string          `json:"searchMode,omitempty"`
 }
 
+// SolveMetadata contains engine version and reproducibility metadata for a solve response.
+type SolveMetadata struct {
+	Version    string `json:"version"`
+	Commit     string `json:"commit"`
+	BuildAt    string `json:"buildAt"`
+	RuleSetHash string `json:"ruleSetHash,omitempty"`
+}
+
 // SolveResponse is the application-facing response from solving.
 type SolveResponse struct {
 	Status      string          `json:"status"`
 	Solution    json.RawMessage `json:"solution,omitempty"`
 	Score       ScoreDTO        `json:"score"`
-	Diagnostics DiagnosticsDTO `json:"diagnostics"`
+	Diagnostics DiagnosticsDTO  `json:"diagnostics"`
 	Violations  []ViolationDTO  `json:"violations,omitempty"`
-	RuleSetHash string          `json:"ruleSetHash,omitempty"`
+	Metadata    SolveMetadata   `json:"metadata"`
 }
 
 // VerifyRequest is the application-facing request for verifying a solution.

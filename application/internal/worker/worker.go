@@ -204,7 +204,7 @@ func (w *Worker) execute(ctx context.Context, run *domain.ScheduleRun) {
 
 	curraVer := curra.CurrAVersion
 	curraCommit := curra.CurrACommit
-	ruleSetHash := solveResp.RuleSetHash
+	ruleSetHash := solveResp.Metadata.RuleSetHash
 
 	terminalStatus := domain.ScheduleRunStatus(solveResp.Status)
 

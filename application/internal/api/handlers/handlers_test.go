@@ -356,8 +356,9 @@ func setupTestRouter(m *mockRepos) http.Handler {
 	msSvc := services.NewMoveSwapService(repos, adapter)
 	vSvc := services.NewVerificationService(repos, adapter)
 	catSvc := services.NewCatalogService(repos)
+	sliceSvc := services.NewSliceService(repos, adapter)
 
-	h := handlers.New(ttSvc, snapSvc, runSvc, verSvc, pubSvc, msSvc, vSvc, catSvc)
+	h := handlers.New(ttSvc, snapSvc, runSvc, verSvc, pubSvc, msSvc, vSvc, catSvc, sliceSvc)
 	auth := middleware.NewAuthMiddleware()
 
 	return api.NewRouter(h, auth)

@@ -57,6 +57,11 @@ func NewRouter(h *handlers.Handlers, auth *middleware.AuthMiddleware) http.Handl
 	// Verification
 	protectedMux.HandleFunc("POST /api/v1/verify", h.Verify)
 
+	// Phase 1 Vertical Slice — minimal end-to-end solve job API
+	protectedMux.HandleFunc("POST /api/v1/solve-jobs", h.CreateSolveJob)
+	protectedMux.HandleFunc("GET /api/v1/solve-jobs/{id}", h.GetSolveJob)
+	protectedMux.HandleFunc("GET /api/v1/solve-jobs/{id}/result", h.GetSolveJobResult)
+
 	// Academic Catalog (Direct Routes)
 	protectedMux.HandleFunc("GET /api/v1/departments", h.ListDepartments)
 	protectedMux.HandleFunc("POST /api/v1/departments", h.CreateDepartment)

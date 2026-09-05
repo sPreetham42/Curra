@@ -16,11 +16,6 @@ import (
 	"github.com/sPreetham42/timetable-platform/internal/scheduler/verifier"
 )
 
-const (
-	CurrAVersion = "1.0.0"
-	CurrACommit  = "f8cc385"
-)
-
 // Adapter implements the CurraAdapter interface.
 // It is stateless, has no database dependencies, and is the ONLY package
 // that imports CURRA solver packages.
@@ -66,6 +61,13 @@ func (a *Adapter) Solve(ctx context.Context, req SolveRequest) (SolveResponse, e
 	// Compute RuleSetHash
 	_, ruleSetHash, _ := constraints.Compile(&p, constraintInstances)
 
+	metadata := SolveMetadata{
+		Version:     engine.Version,
+		Commit:      engine.Commit,
+		BuildAt:     engine.BuildAt,
+		RuleSetHash: ruleSetHash,
+	}
+
 	// Build engine request
 	engineReq := engine.Request{
 		Problem:     p,
@@ -99,7 +101,7 @@ func (a *Adapter) Solve(ctx context.Context, req SolveRequest) (SolveResponse, e
 			Diagnostics: mapDiagnostics(resp.Diagnostics),
 			Score:       mapScore(resp.Score),
 			Violations:  mapViolations(resp.Diagnostics.Violations),
-			RuleSetHash: ruleSetHash,
+			Metadata:    metadata,
 		}, err
 	}
 
@@ -126,7 +128,7 @@ func (a *Adapter) Solve(ctx context.Context, req SolveRequest) (SolveResponse, e
 		Score:       mapScore(resp.Score),
 		Diagnostics: mapDiagnostics(resp.Diagnostics),
 		Violations:  mapViolations(resp.Diagnostics.Violations),
-		RuleSetHash: ruleSetHash,
+		Metadata:    metadata,
 	}, nil
 }
 
@@ -429,4 +431,15 @@ func (a *Adapter) CompileConstraints(ctx context.Context, req CompileRequest) (C
 	return CompileResponse{
 		RuleSetHash: hash,
 	}, nil
+}
+
+// Capabilities returns the engine version and algorithm capabilities manifest.
+func (a *Adapter) Capabilities() SolverCapabilities {
+	return SolverCapabilities{
+		Version:    engine.Version,
+		Commit:     engine.Commit,
+		BuildAt:    engine.BuildAt,
+		Stages:     []string{"CSP Backtracking", "Tabu Search", "Independent Verification"},
+		Algorithms: []string{"MRV", "Degree Heuristic", "LCV", "Forward Checking", "Tabu Search"},
+	}
 }

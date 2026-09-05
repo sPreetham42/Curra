@@ -571,7 +571,7 @@ func (r *txIdempotencyRepo) Get(ctx context.Context, instID uuid.UUID, key strin
 type mockAdapter struct{}
 
 func (a *mockAdapter) Solve(ctx context.Context, req curra.SolveRequest) (curra.SolveResponse, error) {
-	return curra.SolveResponse{Status: "SOLVED", RuleSetHash: "h1"}, nil
+	return curra.SolveResponse{Status: "SOLVED", Metadata: curra.SolveMetadata{RuleSetHash: "h1"}}, nil
 }
 func (a *mockAdapter) Verify(ctx context.Context, req curra.VerifyRequest) (curra.VerifyResponse, error) {
 	return curra.VerifyResponse{Valid: true, Status: "SOLVED", Score: curra.ScoreDTO{HardViolations: 0}}, nil
@@ -594,6 +594,15 @@ func (a *mockAdapter) ValidateSwap(ctx context.Context, req curra.ValidateSwapRe
 }
 func (a *mockAdapter) CompileConstraints(ctx context.Context, req curra.CompileRequest) (curra.CompileResponse, error) {
 	return curra.CompileResponse{RuleSetHash: "h1"}, nil
+}
+func (a *mockAdapter) Capabilities() curra.SolverCapabilities {
+	return curra.SolverCapabilities{
+		Version:    "test",
+		Commit:     "test",
+		BuildAt:    "test",
+		Stages:     []string{"CSP Backtracking", "Tabu Search", "Independent Verification"},
+		Algorithms: []string{"MRV", "Degree Heuristic", "LCV", "Forward Checking", "Tabu Search"},
+	}
 }
 
 func buildTxTestRepos(db *transactionalMemoryDB) *repositories.Repos {

@@ -80,6 +80,7 @@ func (db *DB) RunMigrations(ctx context.Context) error {
 		createImportRows,
 		createAuditEvents,
 		createIdempotencyKeys,
+		createEngineSnapshots,
 	}
 
 	for i, m := range migrations {

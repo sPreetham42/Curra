@@ -10,6 +10,10 @@ dist/
 # Test binary, built with `go test -c`
 *.test
 
+# Local Go scratch / temp directories
+tmp/
+scratch/
+
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 

@@ -21,6 +21,7 @@ type Handlers struct {
 	moveSwap     *services.MoveSwapService
 	verification *services.VerificationService
 	catalog      *services.CatalogService
+	slice        *services.SliceService
 }
 
 func New(
@@ -32,6 +33,7 @@ func New(
 	moveSwap *services.MoveSwapService,
 	verification *services.VerificationService,
 	catalog *services.CatalogService,
+	slice *services.SliceService,
 ) *Handlers {
 	return &Handlers{
 		timetables:   timetables,
@@ -42,6 +44,7 @@ func New(
 		moveSwap:     moveSwap,
 		verification: verification,
 		catalog:      catalog,
+		slice:        slice,
 	}
 }
 
@@ -754,4 +757,82 @@ func (h *Handlers) CompileConstraints(w http.ResponseWriter, r *http.Request) {
 	}
 	// compile via adapter (can be added if exposed via verification service or direct adapter)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// POST /api/v1/solve-jobs
+//
+// Submits a synchronous solve job. Returns the canonical application
+// result on success. Always 202 because the job runs synchronously; the
+// caller can poll GET /api/v1/solve-jobs/{id} to observe state, or read
+// the full result via GET /api/v1/solve-jobs/{id}/result.
+func (h *Handlers) CreateSolveJob(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TimetableID uuid.UUID  `json:"timetableId"`
+		SnapshotID  *uuid.UUID `json:"snapshotId,omitempty"`
+		Seed        int64      `json:"seed,omitempty"`
+		UseSeed     bool       `json:"useSeed,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid request body")
+		return
+	}
+	if body.TimetableID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "timetableId is required")
+		return
+	}
+	user, _ := services.UserFromContext(r.Context())
+	if user.ID == uuid.Nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+
+	result, err := h.slice.CreateAndRunSolveJob(r.Context(), services.SolveRequest{
+		TimetableID: body.TimetableID,
+		SnapshotID:  body.SnapshotID,
+		Seed:        body.Seed,
+		UseSeed:     body.UseSeed,
+	}, user.ID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"runId":  result.RunID,
+		"result": result,
+	})
+}
+
+// GET /api/v1/solve-jobs/{id}
+func (h *Handlers) GetSolveJob(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid job id")
+		return
+	}
+	job, err := h.slice.GetJob(r.Context(), id)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+// GET /api/v1/solve-jobs/{id}/result
+func (h *Handlers) GetSolveJobResult(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid job id")
+		return
+	}
+	result, err := h.slice.GetResult(r.Context(), id)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	if !result.Verified {
+		writeError(w, http.StatusUnprocessableEntity, "VERIFICATION_FAILED",
+			"engine result failed independent verification")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }

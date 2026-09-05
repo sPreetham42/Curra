@@ -8,7 +8,9 @@ import type {
   ScheduleRun,
   RoomEntity,
   TimeSlotEntity,
+  SolveJobResult,
 } from './api/types';
+import SolveJobView from './components/SolveJobView';
 import {
   Play,
   RotateCw,
@@ -689,6 +691,17 @@ export default function App() {
 
             {/* Selected Assignment & Move/Swap Inspector Panel (1 col) */}
             <div className="lg:col-span-1 space-y-4">
+              <SolveJobView
+                timetableId={getTTId(timetable)}
+                onComplete={(result: SolveJobResult) => {
+                  setInfoBanner(
+                    `Vertical slice: ${result.status} (${result.assignments.length} assignments, ${
+                      result.verified ? 'verified' : 'not verified'
+                    })`
+                  );
+                }}
+              />
+
               <div className="bg-slate-800/80 border border-slate-700 rounded-lg p-4 space-y-4">
                 <h3 className="text-sm font-bold text-slate-200 uppercase border-b border-slate-700 pb-2">
                   Assignment Inspector
