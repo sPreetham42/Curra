@@ -7,7 +7,7 @@
 Curra solves university course scheduling in two clean stages — a **CSP backtracking solver** guarantees a feasible timetable, then a **Tabu Search optimizer** refines it against soft objectives, without ever compromising that feasibility.
 
 <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version"></a>
-<a href="https://github.com/sPreetham42/Curra/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
+<a href="https://github.com/sPreetham42/Curra/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge" alt="License"></a>
 <img src="https://img.shields.io/badge/Tests-Passing-brightgreen?style=for-the-badge" alt="Tests">
 
 </div>
@@ -187,7 +187,7 @@ go test -run=^$ -bench=. -benchmem ./tests # benchmarks
 
 ## License
 
-Released under the [MIT License](https://github.com/sPreetham42/Curra/blob/master/LICENSE).
+Released under the [Apache License 2.0](https://github.com/sPreetham42/Curra/blob/master/LICENSE).
 
 <div align="center">
 
