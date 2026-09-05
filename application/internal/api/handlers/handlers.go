@@ -761,16 +761,17 @@ func (h *Handlers) CompileConstraints(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/v1/solve-jobs
 //
-// Submits a synchronous solve job. Returns the canonical application
-// result on success. Always 202 because the job runs synchronously; the
-// caller can poll GET /api/v1/solve-jobs/{id} to observe state, or read
-// the full result via GET /api/v1/solve-jobs/{id}/result.
+// Submits an asynchronous solve job. Returns immediately with 202 Accepted
+// and the run ID. The job is processed by the background worker.
+// Poll GET /api/v1/solve-jobs/{id} to observe state, or read the full
+// result via GET /api/v1/solve-jobs/{id}/result.
 func (h *Handlers) CreateSolveJob(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		TimetableID uuid.UUID  `json:"timetableId"`
-		SnapshotID  *uuid.UUID `json:"snapshotId,omitempty"`
-		Seed        int64      `json:"seed,omitempty"`
-		UseSeed     bool       `json:"useSeed,omitempty"`
+		TimetableID     uuid.UUID  `json:"timetableId"`
+		SnapshotID      *uuid.UUID `json:"snapshotId,omitempty"`
+		Seed           int64      `json:"seed,omitempty"`
+		UseSeed        bool       `json:"useSeed,omitempty"`
+		DeadlineSeconds int       `json:"deadlineSeconds,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid request body")
@@ -786,19 +787,19 @@ func (h *Handlers) CreateSolveJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.slice.CreateAndRunSolveJob(r.Context(), services.SolveRequest{
-		TimetableID: body.TimetableID,
-		SnapshotID:  body.SnapshotID,
-		Seed:        body.Seed,
-		UseSeed:     body.UseSeed,
+	runID, err := h.slice.CreateSolveJob(r.Context(), services.SolveRequest{
+		TimetableID:      body.TimetableID,
+		SnapshotID:       body.SnapshotID,
+		Seed:             body.Seed,
+		UseSeed:          body.UseSeed,
+		DeadlineSeconds:  body.DeadlineSeconds,
 	}, user.ID)
 	if err != nil {
 		handleError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"runId":  result.RunID,
-		"result": result,
+		"runId": runID,
 	})
 }
 
@@ -835,4 +836,19 @@ func (h *Handlers) GetSolveJobResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// POST /api/v1/solve-jobs/{id}/cancel
+func (h *Handlers) CancelSolveJob(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid job id")
+		return
+	}
+	err = h.slice.CancelSolveJob(r.Context(), id)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }

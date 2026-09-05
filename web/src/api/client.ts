@@ -192,14 +192,14 @@ export const api = {
     return request<TimeSlotEntity[]>('/api/v1/time-slots');
   },
 
-  // Phase 1 Vertical Slice — synchronous end-to-end solve job.
-  // The job runs inline; the response is the canonical application result.
+  // Phase 2 — async solve job submission. POST returns 202 with runId only;
+  // poll getSolveJob for status, then getSolveJobResult for the canonical result.
   async createSolveJob(
     timetableId: string,
     snapshotId?: string,
     seed?: number
-  ): Promise<{ runId: string; result: import('./types').SolveJobResult }> {
-    return request<{ runId: string; result: import('./types').SolveJobResult }>(
+  ): Promise<{ runId: string }> {
+    return request<{ runId: string }>(
       '/api/v1/solve-jobs',
       {
         method: 'POST',
@@ -219,5 +219,11 @@ export const api = {
 
   async getSolveJobResult(jobId: string): Promise<import('./types').SolveJobResult> {
     return request<import('./types').SolveJobResult>(`/api/v1/solve-jobs/${jobId}/result`);
+  },
+
+  async cancelSolveJob(jobId: string): Promise<{ status: string }> {
+    return request<{ status: string }>(`/api/v1/solve-jobs/${jobId}/cancel`, {
+      method: 'POST',
+    });
   },
 };

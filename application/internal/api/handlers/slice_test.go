@@ -327,8 +327,40 @@ func TestHTTP_SolveJob_EndToEnd_WithRealEngineV1(t *testing.T) {
 	if resp.RunID == "" {
 		t.Fatalf("expected runId in response; body=%s", rec.Body.String())
 	}
+	if len(resp.Result) > 0 {
+		t.Fatalf("async API must not return synchronous result; body=%s", rec.Body.String())
+	}
 
 	runID, _ := uuid.Parse(resp.RunID)
+
+	run, ok := mem.runs[runID]
+	if !ok {
+		t.Fatalf("run not created")
+	}
+	if run.Status != domain.StatusQueued {
+		t.Errorf("expected job status QUEUED immediately after POST, got %s", run.Status)
+	}
+
+	// Simulate the worker picking up the job
+	workerAdapter := curra.New(testLogger(t))
+	workerSlice := services.NewSliceService(mem.buildRepos(), workerAdapter)
+	commitHook := func(canonical domain.CanonicalResult, solutionJSON json.RawMessage) error {
+		now := time.Now()
+		run.Status = domain.ScheduleRunStatus(canonical.Status)
+		run.FinishedAt = &now
+		run.StartedAt = &run.CreatedAt
+		ruleSetHash := canonical.Metadata.RuleSetHash
+		run.RuleSetHash = &ruleSetHash
+		run.CurrAVersion = &canonical.Metadata.EngineVersion
+		run.CurrACommit = &canonical.Metadata.EngineCommit
+		run.Result = solutionJSON
+		run.Diagnostics = json.RawMessage(`{}`)
+		mem.runs[run.ID] = run
+		return nil
+	}
+	if err := workerSlice.ExecuteQueuedRun(context.Background(), run, snap, commitHook); err != nil {
+		t.Fatalf("execute queued run: %v", err)
+	}
 
 	// GET /solve-jobs/{id}
 	getReq := authedRequest(t, http.MethodGet, "/api/v1/solve-jobs/"+runID.String(), nil, instID, userID)
@@ -376,59 +408,84 @@ func TestHTTP_SolveJob_EndToEnd_WithRealEngineV1(t *testing.T) {
 
 func TestHTTP_SolveJob_Deterministic(t *testing.T) {
 	routerA, memA, instIDA, ttIDA := setupSliceRouter(t)
-	routerB, memB, instIDB, ttIDB := setupSliceRouter(t)
 	userID := uuid.New()
 
 	snapA := getFirstSnapshot(memA)
-	snapB := getFirstSnapshot(memB)
-	_ = ttIDA
-	_ = ttIDB
 
-	bodyA, _ := json.Marshal(map[string]any{
+	// Create a second run on the SAME snapshot+tenant to compare deterministic
+	// behavior across two independent solve invocations.
+	bodyA1, _ := json.Marshal(map[string]any{
 		"timetableId": ttIDA,
 		"snapshotId":  snapA.ID,
 		"seed":        9999,
 		"useSeed":     true,
 	})
-	reqA := authedRequest(t, http.MethodPost, "/api/v1/solve-jobs", bodyA, instIDA, userID)
-	recA := httptest.NewRecorder()
-	routerA.ServeHTTP(recA, reqA)
-	if recA.Code != http.StatusAccepted {
-		t.Fatalf("A: %d %s", recA.Code, recA.Body.String())
+	reqA1 := authedRequest(t, http.MethodPost, "/api/v1/solve-jobs", bodyA1, instIDA, userID)
+	recA1 := httptest.NewRecorder()
+	routerA.ServeHTTP(recA1, reqA1)
+	if recA1.Code != http.StatusAccepted {
+		t.Fatalf("A1: %d %s", recA1.Code, recA1.Body.String())
 	}
 
-	bodyB, _ := json.Marshal(map[string]any{
-		"timetableId": ttIDB,
-		"snapshotId":  snapB.ID,
+	bodyA2, _ := json.Marshal(map[string]any{
+		"timetableId": ttIDA,
+		"snapshotId":  snapA.ID,
 		"seed":        9999,
 		"useSeed":     true,
 	})
-	reqB := authedRequest(t, http.MethodPost, "/api/v1/solve-jobs", bodyB, instIDB, userID)
-	recB := httptest.NewRecorder()
-	routerB.ServeHTTP(recB, reqB)
-	if recB.Code != http.StatusAccepted {
-		t.Fatalf("B: %d %s", recB.Code, recB.Body.String())
+	reqA2 := authedRequest(t, http.MethodPost, "/api/v1/solve-jobs", bodyA2, instIDA, userID)
+	recA2 := httptest.NewRecorder()
+	routerA.ServeHTTP(recA2, reqA2)
+	if recA2.Code != http.StatusAccepted {
+		t.Fatalf("A2: %d %s", recA2.Code, recA2.Body.String())
 	}
 
-	var rA, rB struct {
-		Result struct {
-			Assignments []struct {
-				RoomID     string `json:"roomId"`
-				TimeSlotID string `json:"timeSlotId"`
-			} `json:"assignments"`
-			Metadata struct {
-				InputHash   string `json:"inputHash"`
-				RuleSetHash string `json:"ruleSetHash"`
-			} `json:"metadata"`
-		} `json:"result"`
+	var envA1, envA2 struct {
+		Data struct {
+			RunID string `json:"runId"`
+		} `json:"data"`
 	}
-	_ = json.Unmarshal(recA.Body.Bytes(), &rA)
-	_ = json.Unmarshal(recB.Body.Bytes(), &rB)
-	if rA.Result.Metadata.InputHash != rB.Result.Metadata.InputHash {
+	_ = json.Unmarshal(recA1.Body.Bytes(), &envA1)
+	_ = json.Unmarshal(recA2.Body.Bytes(), &envA2)
+	runID1, _ := uuid.Parse(envA1.Data.RunID)
+	runID2, _ := uuid.Parse(envA2.Data.RunID)
+
+	run1 := memA.runs[runID1]
+	run2 := memA.runs[runID2]
+
+	processJob := func(run domain.ScheduleRun) domain.CanonicalResult {
+		workerAdapter := curra.New(testLogger(t))
+		workerSlice := services.NewSliceService(memA.buildRepos(), workerAdapter)
+		var result domain.CanonicalResult
+		commitHook := func(canonical domain.CanonicalResult, solutionJSON json.RawMessage) error {
+			now := time.Now()
+			run.Status = domain.ScheduleRunStatus(canonical.Status)
+			run.FinishedAt = &now
+			run.StartedAt = &run.CreatedAt
+			ruleSetHash := canonical.Metadata.RuleSetHash
+			run.RuleSetHash = &ruleSetHash
+			run.CurrAVersion = &canonical.Metadata.EngineVersion
+			run.CurrACommit = &canonical.Metadata.EngineCommit
+			run.Result = solutionJSON
+			run.Diagnostics = json.RawMessage(`{}`)
+			memA.runs[run.ID] = run
+			result = canonical
+			return nil
+		}
+		if err := workerSlice.ExecuteQueuedRun(context.Background(), run, snapA, commitHook); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return result
+	}
+
+	result1 := processJob(run1)
+	result2 := processJob(run2)
+
+	if result1.Metadata.InputHash != result2.Metadata.InputHash {
 		t.Errorf("input hash differs across deterministic runs: %s vs %s",
-			rA.Result.Metadata.InputHash, rB.Result.Metadata.InputHash)
+			result1.Metadata.InputHash, result2.Metadata.InputHash)
 	}
-	if rA.Result.Metadata.RuleSetHash != rB.Result.Metadata.RuleSetHash {
+	if result1.Metadata.RuleSetHash != result2.Metadata.RuleSetHash {
 		t.Errorf("rule set hash differs across deterministic runs")
 	}
 }

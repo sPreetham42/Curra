@@ -16,11 +16,12 @@ import (
 )
 
 type mockWorkerRepos struct {
-	runs        map[uuid.UUID]domain.ScheduleRun
-	snapshots   map[uuid.UUID]domain.ProblemSnapshot
-	versions    map[uuid.UUID]domain.ScheduleVersion
-	assignments map[uuid.UUID][]domain.ScheduleAssignment
-	auditEvents []domain.AuditEvent
+	runs          map[uuid.UUID]domain.ScheduleRun
+	snapshots     map[uuid.UUID]domain.ProblemSnapshot
+	versions      map[uuid.UUID]domain.ScheduleVersion
+	assignments   map[uuid.UUID][]domain.ScheduleAssignment
+	auditEvents   []domain.AuditEvent
+	engineSnaps   map[uuid.UUID]domain.EngineSnapshot
 }
 
 func newMockWorkerRepos() *mockWorkerRepos {
@@ -29,6 +30,7 @@ func newMockWorkerRepos() *mockWorkerRepos {
 		snapshots:   make(map[uuid.UUID]domain.ProblemSnapshot),
 		versions:    make(map[uuid.UUID]domain.ScheduleVersion),
 		assignments: make(map[uuid.UUID][]domain.ScheduleAssignment),
+		engineSnaps: make(map[uuid.UUID]domain.EngineSnapshot),
 	}
 }
 
@@ -217,6 +219,20 @@ func (r *mockAuditRepo) ListByInstitution(ctx context.Context, instID uuid.UUID,
 	return nil, nil
 }
 
+type mockEngineSnapshotRepo struct{ m *mockWorkerRepos }
+
+func (r *mockEngineSnapshotRepo) Create(ctx context.Context, snap domain.EngineSnapshot) error {
+	r.m.engineSnaps[snap.ScheduleRunID] = snap
+	return nil
+}
+func (r *mockEngineSnapshotRepo) GetByRunID(ctx context.Context, runID uuid.UUID) (domain.EngineSnapshot, error) {
+	snap, ok := r.m.engineSnaps[runID]
+	if !ok {
+		return domain.EngineSnapshot{}, repositories.ErrNotFound
+	}
+	return snap, nil
+}
+
 type mockCurraAdapter struct{}
 
 func (a *mockCurraAdapter) Solve(ctx context.Context, req curra.SolveRequest) (curra.SolveResponse, error) {
@@ -247,6 +263,7 @@ func TestWorker_ClaimAndExecute(t *testing.T) {
 		ScheduleVersions:    &mockVersionRepo{m: m},
 		ScheduleAssignments: &mockAssignmentRepo{m: m},
 		AuditEvents:         &mockAuditRepo{m: m},
+		EngineSnapshots:     &mockEngineSnapshotRepo{m: m},
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -256,12 +273,14 @@ func TestWorker_ClaimAndExecute(t *testing.T) {
 	ttID := uuid.New()
 	snapID := uuid.New()
 	runID := uuid.New()
+	seed := int64(42)
 
 	m.snapshots[snapID] = domain.ProblemSnapshot{
 		ID:            snapID,
 		TimetableID:   ttID,
 		InstitutionID: instID,
 		ProblemJSON:   []byte(`{}`),
+		ConstraintInstances: []byte(`[]`),
 	}
 
 	m.runs[runID] = domain.ScheduleRun{
@@ -270,15 +289,15 @@ func TestWorker_ClaimAndExecute(t *testing.T) {
 		InstitutionID: instID,
 		SnapshotID:    snapID,
 		Status:        domain.StatusQueued,
+		Seed:          &seed,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	go w.Start(ctx)
 
-	// Wait for worker to claim and solve
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	run := m.runs[runID]
 	if run.Status != domain.StatusSolved {

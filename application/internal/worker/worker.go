@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sPreetham42/timetable-platform/application/internal/asyncrun"
 	"github.com/sPreetham42/timetable-platform/application/internal/curra"
 	"github.com/sPreetham42/timetable-platform/application/internal/database/repositories"
 	"github.com/sPreetham42/timetable-platform/application/internal/domain"
@@ -52,7 +53,6 @@ func (w *Worker) Start(ctx context.Context) error {
 	reapTicker := time.NewTicker(w.reapPeriod)
 	defer reapTicker.Stop()
 
-	// Initial poll immediately upon start
 	w.poll(ctx)
 
 	for {
@@ -75,12 +75,12 @@ func (w *Worker) Start(ctx context.Context) error {
 	}
 }
 
-// calculateLeaseDuration computes lease = maximum solver execution window + fixed safety margin.
 func calculateLeaseDuration(solverConfigJSON json.RawMessage) time.Duration {
 	const defaultSafetyMargin = 2 * time.Minute
 	const fallbackTimeout = 5 * time.Minute
 
 	var cfg struct {
+		DeadlineSeconds    int `json:"deadlineSeconds"`
 		TimeoutSeconds     int `json:"timeoutSeconds"`
 		MaxDurationSeconds int `json:"maxDurationSeconds"`
 		MaxNodes           int `json:"maxNodes"`
@@ -91,12 +91,13 @@ func calculateLeaseDuration(solverConfigJSON json.RawMessage) time.Duration {
 	}
 
 	timeout := fallbackTimeout
-	if cfg.TimeoutSeconds > 0 {
+	if cfg.DeadlineSeconds > 0 {
+		timeout = time.Duration(cfg.DeadlineSeconds) * time.Second
+	} else if cfg.TimeoutSeconds > 0 {
 		timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
 	} else if cfg.MaxDurationSeconds > 0 {
 		timeout = time.Duration(cfg.MaxDurationSeconds) * time.Second
 	} else if cfg.MaxNodes > 0 {
-		// Reasonable heuristic: 1000 nodes ~ 1 second
 		estimatedSec := cfg.MaxNodes / 1000
 		if estimatedSec > 300 {
 			timeout = time.Duration(estimatedSec) * time.Second
@@ -107,7 +108,12 @@ func calculateLeaseDuration(solverConfigJSON json.RawMessage) time.Duration {
 }
 
 func (w *Worker) poll(ctx context.Context) {
-	// 1. Initial default claim lease (will be extended if configured for longer)
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("worker recovered from panic in poll", "panic", r)
+		}
+	}()
+
 	leaseDuration := 5 * time.Minute
 	run, claimed, err := w.repos.ScheduleRuns.ClaimQueued(ctx, w.id, leaseDuration)
 	if err != nil {
@@ -121,12 +127,10 @@ func (w *Worker) poll(ctx context.Context) {
 	dynamicLease := calculateLeaseDuration(run.SolverConfig)
 	w.logger.Info("claimed run", "run_id", run.ID, "worker_id", w.id, "lease_duration", dynamicLease)
 
-	// Heartbeat context
 	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
 	defer heartbeatCancel()
 	go w.heartbeat(heartbeatCtx, run.ID)
 
-	// Execute solve
 	w.execute(ctx, run)
 }
 
@@ -139,9 +143,16 @@ func (w *Worker) heartbeat(ctx context.Context, runID uuid.UUID) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.repos.ScheduleRuns.UpdateHeartbeat(ctx, runID, w.id); err != nil {
-				w.logger.Error("heartbeat failed", "run_id", runID, "worker_id", w.id, "error", err)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						w.logger.Error("heartbeat recovered from panic", "run_id", runID, "panic", r)
+					}
+				}()
+				if err := w.repos.ScheduleRuns.UpdateHeartbeat(ctx, runID, w.id); err != nil {
+					w.logger.Error("heartbeat failed", "run_id", runID, "worker_id", w.id, "error", err)
+				}
+			}()
 		}
 	}
 }
@@ -149,7 +160,6 @@ func (w *Worker) heartbeat(ctx context.Context, runID uuid.UUID) {
 func (w *Worker) execute(ctx context.Context, run *domain.ScheduleRun) {
 	start := time.Now()
 
-	// 1. Load immutable snapshot
 	snap, err := w.repos.Snapshots.GetByID(ctx, run.SnapshotID)
 	if err != nil {
 		w.logger.Error("failed to load snapshot for run", "run_id", run.ID, "error", err)
@@ -157,118 +167,117 @@ func (w *Worker) execute(ctx context.Context, run *domain.ScheduleRun) {
 		return
 	}
 
-	// 2. Parse solver config from snapshot/run
-	var seed int64
-	if run.Seed != nil {
-		seed = *run.Seed
-	} else {
-		seed = time.Now().UnixNano()
+	var terminalStatus domain.ScheduleRunStatus
+	var resultJSON json.RawMessage
+	var scoreJSON, diagJSON, violationsJSON json.RawMessage
+	var durationMs int64
+	var curraVer, curraCommit, ruleSetHash string
+
+	commitHook := func(canonical asyncrun.CanonicalResult, solutionJSON json.RawMessage) error {
+		terminalStatus = domain.ScheduleRunStatus(canonical.Status)
+
+		if len(canonical.Assignments) > 0 {
+			resultJSON, _ = json.Marshal(map[string]any{"assignments": canonical.Assignments})
+		}
+
+		diagJSON, _ = json.Marshal(canonical.Diagnostics)
+
+		if terminalStatus == domain.StatusSolved {
+			ruleSetHash = canonical.Metadata.RuleSetHash
+			curraVer = canonical.Metadata.EngineVersion
+			curraCommit = canonical.Metadata.EngineCommit
+		}
+
+		durationMs = int64(time.Since(start).Milliseconds())
+
+		var draftVer *domain.ScheduleVersion
+		var newAssignments []domain.ScheduleAssignment
+
+		if terminalStatus == domain.StatusSolved && len(canonical.Assignments) > 0 {
+			v := domain.ScheduleVersion{
+				ID:            uuid.New(),
+				TimetableID:   run.TimetableID,
+				InstitutionID: run.InstitutionID,
+				SourceRunID:   &run.ID,
+				SnapshotID:    run.SnapshotID,
+				Status:        domain.VersionStatusDraft,
+				Name:          fmt.Sprintf("Auto-generated from run %s", run.ID.String()[:8]),
+				Score:         scoreJSON,
+				Version:       1,
+				CreatedBy:     run.CreatedBy,
+				CreatedAt:     time.Now(),
+				UpdatedAt:     time.Now(),
+			}
+			draftVer = &v
+			assignments := make([]domain.ScheduleAssignment, len(canonical.Assignments))
+			for i, a := range canonical.Assignments {
+				assignments[i] = domain.ScheduleAssignment{
+					ID:                   uuid.New(),
+					VersionID:            v.ID,
+					AssignmentID:         a.AssignmentID,
+					CourseOfferingID:     a.CourseOfferingID,
+					SessionRequirementID: a.SessionRequirementID,
+					StudentGroupID:       a.StudentGroupID,
+					FacultyID:            a.FacultyID,
+					RoomID:               a.RoomID,
+					TimeSlotID:           a.TimeSlotID,
+					Instance:             a.Instance,
+					CreatedAt:            time.Now(),
+				}
+			}
+			newAssignments = assignments
+		}
+
+		audit := domain.AuditEvent{
+			ID:            uuid.New(),
+			InstitutionID: run.InstitutionID,
+			UserID:        &run.CreatedBy,
+			Action:        "schedule_run.complete",
+			ResourceType:  "schedule_run",
+			ResourceID:    run.ID,
+			Details:       json.RawMessage(fmt.Sprintf(`{"status":"%s","durationMs":%d}`, terminalStatus, durationMs)),
+			CreatedAt:     time.Now(),
+		}
+
+		err := w.repos.ScheduleRuns.CommitTerminalResultTx(
+			ctx,
+			run.ID,
+			w.id,
+			terminalStatus,
+			resultJSON,
+			scoreJSON,
+			diagJSON,
+			violationsJSON,
+			durationMs,
+			&curraVer,
+			&curraCommit,
+			&ruleSetHash,
+			draftVer,
+			newAssignments,
+			audit,
+		)
+		return err
 	}
 
-	var solverConfig struct {
-		SearchMode string `json:"searchMode"`
-		MaxNodes   int    `json:"maxNodes"`
-	}
-	if len(run.SolverConfig) > 0 {
-		_ = json.Unmarshal(run.SolverConfig, &solverConfig)
-	} else {
-		_ = json.Unmarshal(snap.SolverConfig, &solverConfig)
-	}
+	err = func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during solve: %v", r)
+				w.logger.Error("worker recovered from panic", "run_id", run.ID, "panic", r)
+			}
+		}()
+		return asyncrun.Execute(ctx, *run, snap, w.repos, w.adapter, asyncrun.ComputeInputHash, commitHook)
+	}()
 
-	solveReq := curra.SolveRequest{
-		ProblemJSON:     snap.ProblemJSON,
-		ConstraintsJSON: snap.ConstraintInstances,
-		Seed:            seed,
-		MaxNodes:        solverConfig.MaxNodes,
-		SearchMode:      solverConfig.SearchMode,
-	}
-
-	// 3. Execute CURRA solver strictly OUTSIDE database transaction
-	w.logger.Info("executing curra solver outside db transaction", "run_id", run.ID, "seed", seed)
-	solveResp, err := w.adapter.Solve(ctx, solveReq)
-	durationMs := int64(time.Since(start).Milliseconds())
-
-	if err != nil && solveResp.Status == "" {
-		w.logger.Error("curra solver execution error", "run_id", run.ID, "error", err)
-		w.failRun(ctx, run, err.Error())
+	if err != nil {
+		w.logger.Error("execute failed", "run_id", run.ID, "error", err)
+		w.failRun(ctx, run, fmt.Sprintf("execute failed: %v", err))
 		return
 	}
 
-	// 4. Prepare terminal payload
-	scoreJSON, _ := json.Marshal(solveResp.Score)
-	diagJSON, _ := json.Marshal(solveResp.Diagnostics)
-	var violationsJSON json.RawMessage
-	if len(solveResp.Violations) > 0 {
-		violationsJSON, _ = json.Marshal(solveResp.Violations)
-	}
-
-	curraVer := curra.CurrAVersion
-	curraCommit := curra.CurrACommit
-	ruleSetHash := solveResp.Metadata.RuleSetHash
-
-	terminalStatus := domain.ScheduleRunStatus(solveResp.Status)
-
-	var draftVer *domain.ScheduleVersion
-	var newAssignments []domain.ScheduleAssignment
-
-	if terminalStatus == domain.StatusSolved && len(solveResp.Solution) > 0 {
-		v := domain.ScheduleVersion{
-			ID:            uuid.New(),
-			TimetableID:   run.TimetableID,
-			InstitutionID: run.InstitutionID,
-			SourceRunID:   &run.ID,
-			SnapshotID:    run.SnapshotID,
-			Status:        domain.VersionStatusDraft,
-			Name:          fmt.Sprintf("Auto-generated from run %s", run.ID.String()[:8]),
-			Score:         scoreJSON,
-			Version:       1,
-			CreatedBy:     run.CreatedBy,
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
-		}
-		draftVer = &v
-		assignments, parseErr := parseAssignmentsFromSolution(v.ID, solveResp.Solution)
-		if parseErr == nil && len(assignments) > 0 {
-			newAssignments = assignments
-		}
-	}
-
-	audit := domain.AuditEvent{
-		ID:            uuid.New(),
-		InstitutionID: run.InstitutionID,
-		UserID:        &run.CreatedBy,
-		Action:        "schedule_run.complete",
-		ResourceType:  "schedule_run",
-		ResourceID:    run.ID,
-		Details:       json.RawMessage(fmt.Sprintf(`{"status":"%s","durationMs":%d}`, terminalStatus, durationMs)),
-		CreatedAt:     time.Now(),
-	}
-
-	// 5. Commit all terminal result writes in one atomic database transaction
-	err = w.repos.ScheduleRuns.CommitTerminalResultTx(
-		ctx,
-		run.ID,
-		w.id,
-		terminalStatus,
-		solveResp.Solution,
-		scoreJSON,
-		diagJSON,
-		violationsJSON,
-		durationMs,
-		&curraVer,
-		&curraCommit,
-		&ruleSetHash,
-		draftVer,
-		newAssignments,
-		audit,
-	)
-
-	if err != nil {
-		if errors.Is(err, repositories.ErrStaleWorker) {
-			w.logger.Warn("worker lease was revoked, stolen, or cancelled; ignoring late result", "run_id", run.ID, "worker_id", w.id)
-			return
-		}
-		w.logger.Error("failed to atomically commit terminal result", "run_id", run.ID, "error", err)
+	if terminalStatus == "" {
+		w.logger.Error("execute returned nil error but terminal status not set", "run_id", run.ID)
+		w.failRun(ctx, run, "internal error: terminal status not set")
 		return
 	}
 
@@ -312,42 +321,4 @@ func (w *Worker) failRun(ctx context.Context, run *domain.ScheduleRun, msg strin
 	if err != nil && errors.Is(err, repositories.ErrStaleWorker) {
 		w.logger.Warn("worker lease expired while failing run", "run_id", run.ID)
 	}
-}
-
-func parseAssignmentsFromSolution(versionID uuid.UUID, solutionJSON json.RawMessage) ([]domain.ScheduleAssignment, error) {
-	var sol struct {
-		Assignments []struct {
-			ID                   string `json:"id"`
-			CourseOfferingID     string `json:"courseOfferingId"`
-			SessionRequirementID string `json:"sessionRequirementId"`
-			StudentGroupID       string `json:"studentGroupId"`
-			FacultyID            string `json:"facultyId"`
-			RoomID               string `json:"roomId"`
-			TimeSlotID           string `json:"timeSlotId"`
-			Instance             int    `json:"instance"`
-		} `json:"assignments"`
-	}
-
-	if err := json.Unmarshal(solutionJSON, &sol); err != nil {
-		return nil, err
-	}
-
-	res := make([]domain.ScheduleAssignment, len(sol.Assignments))
-	for i, a := range sol.Assignments {
-		res[i] = domain.ScheduleAssignment{
-			ID:                   uuid.New(),
-			VersionID:            versionID,
-			AssignmentID:         a.ID,
-			CourseOfferingID:     a.CourseOfferingID,
-			SessionRequirementID: a.SessionRequirementID,
-			StudentGroupID:       a.StudentGroupID,
-			FacultyID:            a.FacultyID,
-			RoomID:               a.RoomID,
-			TimeSlotID:           a.TimeSlotID,
-			Instance:             a.Instance,
-			CreatedAt:            time.Now(),
-		}
-	}
-
-	return res, nil
 }

@@ -1,52 +1,132 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, HTTPError } from '../api/client';
-import type { SolveJobResult } from '../api/types';
-import { Play, AlertTriangle, CheckCircle2, Hash } from 'lucide-react';
+import type { SolveJob, SolveJobResult } from '../api/types';
+import { Play, AlertTriangle, CheckCircle2, Hash, XCircle, Loader2 } from 'lucide-react';
 
 interface Props {
   timetableId: string;
   onComplete: (result: SolveJobResult) => void;
 }
 
+const TERMINAL_STATUSES = new Set([
+  'SOLVED',
+  'INFEASIBLE',
+  'INVALID_PROBLEM',
+  'INVALID_RESULT',
+  'FAILED',
+  'CANCELLED',
+  'DEADLINE_EXCEEDED',
+  'NODE_LIMIT',
+]);
+
 /**
- * Phase 1 minimal solve-job panel.
- * Submits a synchronous vertical slice job to the application API and
- * renders the canonical result, including verification status and the
- * engine-version-tagged metadata that proves the run reached Engine V1.
+ * Phase 2 asynchronous solve-job panel.
+ * Submits a job to POST /api/v1/solve-jobs (202 Accepted), then polls
+ * GET /api/v1/solve-jobs/{id} until a terminal status is reached. On
+ * terminal SOLVED status, fetches the canonical result.
  */
 export default function SolveJobView({ timetableId, onComplete }: Props) {
-  const [running, setRunning] = useState(false);
+  const [job, setJob] = useState<SolveJob | null>(null);
   const [result, setResult] = useState<SolveJobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, []);
 
   async function runJob() {
     if (!timetableId) return;
-    setRunning(true);
+    setSubmitting(true);
     setError(null);
     setResult(null);
+    setJob(null);
+    cancelledRef.current = false;
     try {
-      const resp = await api.createSolveJob(timetableId);
-      setResult(resp.result);
-      onComplete(resp.result);
+      const { runId } = await api.createSolveJob(timetableId);
+      const initial = await api.getSolveJob(runId);
+      setJob(initial);
+      setSubmitting(false);
+      pollUntilTerminal(runId);
     } catch (e) {
+      setSubmitting(false);
       if (e instanceof HTTPError) {
         setError(`${e.status} ${e.code}: ${e.message}`);
       } else {
         setError((e as Error).message);
       }
-    } finally {
-      setRunning(false);
     }
   }
 
-  if (error) {
+  async function pollUntilTerminal(runId: string) {
+    if (cancelledRef.current) return;
+    try {
+      const current = await api.getSolveJob(runId);
+      if (cancelledRef.current) return;
+      setJob(current);
+
+      if (TERMINAL_STATUSES.has(current.status)) {
+        if (current.status === 'SOLVED') {
+          try {
+            const r = await api.getSolveJobResult(runId);
+            setResult(r);
+            onComplete(r);
+          } catch (e) {
+            if (e instanceof HTTPError) {
+              setError(`${e.code}: ${e.message}`);
+            } else {
+              setError((e as Error).message);
+            }
+          }
+        } else {
+          setError(`Job ended in status ${current.status}`);
+        }
+        return;
+      }
+
+      pollRef.current = setTimeout(() => pollUntilTerminal(runId), 1000);
+    } catch (e) {
+      if (e instanceof HTTPError) {
+        setError(`${e.code}: ${e.message}`);
+      } else {
+        setError((e as Error).message);
+      }
+    }
+  }
+
+  async function cancelJob() {
+    if (!job) return;
+    cancelledRef.current = true;
+    if (pollRef.current) clearTimeout(pollRef.current);
+    try {
+      await api.cancelSolveJob(job.runId);
+    } catch (e) {
+      if (e instanceof HTTPError) {
+        setError(`${e.code}: ${e.message}`);
+      } else {
+        setError((e as Error).message);
+      }
+    }
+  }
+
+  const isRunning = job && !TERMINAL_STATUSES.has(job.status);
+  const isFailed = job && TERMINAL_STATUSES.has(job.status) && job.status !== 'SOLVED' && job.status !== 'CANCELLED';
+
+  if (error && !job) {
     return (
       <div className="bg-rose-950/30 border border-rose-800 rounded p-4 space-y-2">
         <div className="flex items-center gap-2 text-rose-300 font-semibold">
           <AlertTriangle className="w-4 h-4" />
-          Solve job failed
+          Solve job failed to start
         </div>
         <p className="text-xs text-rose-200 font-mono">{error}</p>
+        <button className="btn-primary text-xs" onClick={runJob}>
+          Retry
+        </button>
       </div>
     );
   }
@@ -54,28 +134,53 @@ export default function SolveJobView({ timetableId, onComplete }: Props) {
   return (
     <div className="bg-slate-800/80 border border-slate-700 rounded-lg p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-200 uppercase">Phase 1 Vertical Slice</h3>
-        <button
-          className="btn-primary text-xs"
-          onClick={runJob}
-          disabled={running || !timetableId}
-        >
-          <Play className="w-3.5 h-3.5 fill-current" />
-          {running ? 'Running…' : 'Run Vertical Slice'}
-        </button>
+        <h3 className="text-sm font-bold text-slate-200 uppercase">Async Solve Job</h3>
+        <div className="flex items-center gap-2">
+          {isRunning && (
+            <button
+              className="btn-secondary text-xs"
+              onClick={cancelJob}
+              data-testid="cancel-solve-job"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Cancel
+            </button>
+          )}
+          <button
+            className="btn-primary text-xs"
+            onClick={runJob}
+            disabled={submitting || isRunning || !timetableId}
+          >
+            {submitting || isRunning ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5 fill-current" />
+            )}
+            {submitting ? 'Submitting…' : isRunning ? 'Working…' : 'Run Solve Job'}
+          </button>
+        </div>
       </div>
+
+      {job && (
+        <div className="space-y-1 text-xs">
+          <div className="flex items-center gap-2">
+            {isRunning && <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />}
+            {job.status === 'SOLVED' && (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            )}
+            {isFailed && <AlertTriangle className="w-4 h-4 text-rose-400" />}
+            {job.status === 'CANCELLED' && <XCircle className="w-4 h-4 text-slate-400" />}
+            <span className="font-semibold text-slate-200">
+              {job.status}
+              {job.verificationOk && job.status === 'SOLVED' ? ' · verified' : ''}
+            </span>
+          </div>
+          <div className="text-[10px] text-slate-400 font-mono">runId: {job.runId}</div>
+        </div>
+      )}
 
       {result && (
         <div className="space-y-3 text-xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle2
-              className={`w-4 h-4 ${result.verified ? 'text-emerald-400' : 'text-rose-400'}`}
-            />
-            <span className="font-semibold text-slate-200">
-              {result.status} {result.verified ? '· verified' : '· not verified'}
-            </span>
-          </div>
-
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-slate-900/60 p-2 rounded border border-slate-700/60">
               <div className="text-slate-400 text-[10px] uppercase">Assignments</div>

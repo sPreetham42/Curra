@@ -1,6 +1,8 @@
 package services
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -95,6 +97,23 @@ func canonicalDiagnosticsFromAdapter(d curra.DiagnosticsDTO) domain.CanonicalDia
 		Backtracks:    d.Backtracks,
 		Message:       d.Message,
 	}
+}
+
+func ComputeInputHash(snap domain.ProblemSnapshot, extra []byte) string {
+	h := sha256.New()
+	h.Write([]byte("problem:"))
+	h.Write(snap.ProblemJSON)
+	h.Write([]byte("|constraints:"))
+	h.Write(snap.ConstraintInstances)
+	h.Write([]byte("|solver:"))
+	h.Write(snap.SolverConfig)
+	h.Write([]byte("|objective:"))
+	h.Write(snap.ObjectiveConfig)
+	if len(extra) > 0 {
+		h.Write([]byte("|extra:"))
+		h.Write(extra)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // buildEngineSnapshot constructs the immutable engine-version-tagged

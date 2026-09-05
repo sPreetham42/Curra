@@ -2,14 +2,13 @@ package services
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sPreetham42/timetable-platform/application/internal/asyncrun"
 	"github.com/sPreetham42/timetable-platform/application/internal/curra"
 	"github.com/sPreetham42/timetable-platform/application/internal/database/repositories"
 	"github.com/sPreetham42/timetable-platform/application/internal/domain"
@@ -35,10 +34,11 @@ func NewSliceService(repos *repositories.Repos, adapter curra.CurraAdapter) *Sli
 
 // SolveRequest is the input the application hands to the vertical slice.
 type SolveRequest struct {
-	TimetableID uuid.UUID
-	SnapshotID  *uuid.UUID
-	Seed        int64
-	UseSeed     bool
+	TimetableID      uuid.UUID
+	SnapshotID       *uuid.UUID
+	Seed             int64
+	UseSeed          bool
+	DeadlineSeconds  int
 }
 
 // SolveJobStatus is the application-owned lifecycle state for a solve job.
@@ -73,19 +73,116 @@ type SolveJob struct {
 	EngineCommit     string         `json:"engineCommit"`
 }
 
-// CreateAndRunSolveJob executes the full vertical slice synchronously:
-//
-//  1. Resolve or create the problem revision (snapshot).
-//  2. Resolve or derive the seed.
-//  3. Persist a ScheduleRun row in QUEUED → RUNNING state.
-//  4. Call adapter.Solve to invoke Engine V1.
-//  5. Persist the engine-version-tagged, immutable engine snapshot.
-//  6. Call adapter.Verify independently on the returned solution.
-//  7. Persist the canonical application result.
-//  8. Update the ScheduleRun row with the final status.
-//
-// If verification fails after a SOLVED engine response, the job is recorded
-// as INVALID_RESULT; the canonical result is not exposed as publishable.
+// CreateSolveJob creates a durable queued job and returns the run ID.
+// The job is processed asynchronously by the background worker.
+func (s *SliceService) CreateSolveJob(ctx context.Context, req SolveRequest, createdBy uuid.UUID) (uuid.UUID, error) {
+	if req.TimetableID == uuid.Nil {
+		return uuid.Nil, errors.New("timetableID is required")
+	}
+
+	tt, err := s.repos.Timetables.GetByID(ctx, req.TimetableID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := RequireTenantMatch(ctx, tt.InstitutionID); err != nil {
+		return uuid.Nil, err
+	}
+
+	var snap domain.ProblemSnapshot
+	if req.SnapshotID != nil {
+		snap, err = s.repos.Snapshots.GetByID(ctx, *req.SnapshotID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if snap.TimetableID != req.TimetableID {
+			return uuid.Nil, ErrNotFound
+		}
+	} else {
+		snap, err = s.createSnapshot(ctx, req.TimetableID, createdBy)
+		if err != nil {
+			return uuid.Nil, err
+		}
+	}
+
+	seed := req.Seed
+	if !req.UseSeed {
+		seed = 0
+	}
+
+	run := domain.ScheduleRun{
+		ID:              uuid.New(),
+		TimetableID:     req.TimetableID,
+		InstitutionID:   tt.InstitutionID,
+		SnapshotID:      snap.ID,
+		Status:          domain.StatusQueued,
+		SolverConfig:    snap.SolverConfig,
+		ObjectiveConfig: snap.ObjectiveConfig,
+		Seed:            &seed,
+		CreatedBy:       createdBy,
+		Version:         1,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	if err := s.repos.ScheduleRuns.Create(ctx, run); err != nil {
+		return uuid.Nil, fmt.Errorf("create schedule run: %w", err)
+	}
+
+	return run.ID, nil
+}
+
+// ExecuteQueuedRun processes a queued run through the complete vertical slice.
+// It is called by the background worker and implements the full solve+verify+snapshot flow
+// with deadline enforcement, panic isolation, and stale-worker protection.
+func (s *SliceService) ExecuteQueuedRun(ctx context.Context, run domain.ScheduleRun, snap domain.ProblemSnapshot, commitHook func(domain.CanonicalResult, json.RawMessage) error) error {
+	deadline := calculateDeadline(snap.SolverConfig, run.SolverConfig)
+
+	deadlineCtx, cancel := context.WithDeadline(ctx, time.Now().Add(deadline))
+	defer cancel()
+
+	runCopy := run
+	runCopy.Status = domain.StatusRunning
+
+	solveHook := func(canonical domain.CanonicalResult, solutionJSON json.RawMessage) error {
+		return commitHook(canonical, solutionJSON)
+	}
+
+	return asyncrun.Execute(deadlineCtx, runCopy, snap, s.repos, s.adapter, asyncrun.ComputeInputHash, solveHook)
+}
+
+func calculateDeadline(snapConfig, runConfig json.RawMessage) time.Duration {
+	const defaultDeadline = 5 * time.Minute
+
+	type solverCfg struct {
+		DeadlineSeconds    int `json:"deadlineSeconds"`
+		TimeoutSeconds     int `json:"timeoutSeconds"`
+		MaxDurationSeconds int `json:"maxDurationSeconds"`
+	}
+
+	for _, cfg := range []json.RawMessage{snapConfig, runConfig} {
+		if len(cfg) == 0 {
+			continue
+		}
+		var c solverCfg
+		if err := json.Unmarshal(cfg, &c); err != nil {
+			continue
+		}
+		if c.DeadlineSeconds > 0 {
+			return time.Duration(c.DeadlineSeconds) * time.Second
+		}
+		if c.TimeoutSeconds > 0 {
+			return time.Duration(c.TimeoutSeconds) * time.Second
+		}
+		if c.MaxDurationSeconds > 0 {
+			return time.Duration(c.MaxDurationSeconds) * time.Second
+		}
+	}
+
+	return defaultDeadline
+}
+
+// CreateAndRunSolveJob is the synchronous Phase 1 compatibility path.
+// It creates a QUEUED job then immediately executes it inline.
+// For async execution, use CreateSolveJob + worker.
 func (s *SliceService) CreateAndRunSolveJob(ctx context.Context, req SolveRequest, createdBy uuid.UUID) (domain.CanonicalResult, error) {
 	if req.TimetableID == uuid.Nil {
 		return domain.CanonicalResult{}, errors.New("timetableID is required")
@@ -138,7 +235,24 @@ func (s *SliceService) CreateAndRunSolveJob(ctx context.Context, req SolveReques
 		return domain.CanonicalResult{}, fmt.Errorf("create schedule run: %w", err)
 	}
 
-	canonical, err := s.executeSolveAndVerify(ctx, run, snap, seed)
+	commitHook := func(canonical domain.CanonicalResult, solutionJSON json.RawMessage) error {
+		run.Status = domain.ScheduleRunStatus(canonical.Status)
+		now := time.Now()
+		run.FinishedAt = &now
+		run.StartedAt = &run.CreatedAt
+		ruleSetHash := canonical.Metadata.RuleSetHash
+		run.RuleSetHash = &ruleSetHash
+		run.CurrAVersion = &canonical.Metadata.EngineVersion
+		run.CurrACommit = &canonical.Metadata.EngineCommit
+		run.DurationMs = ptrInt64(int64(now.Sub(run.CreatedAt) / time.Millisecond))
+		run.Diagnostics = mustMarshal(canonical.Diagnostics)
+		if len(solutionJSON) > 0 {
+			run.Result = solutionJSON
+		}
+		return s.repos.ScheduleRuns.Update(ctx, run)
+	}
+
+	canonical, err := s.executeSolveAndVerify(ctx, run, snap, seed, commitHook)
 	if err != nil {
 		return domain.CanonicalResult{}, err
 	}
@@ -150,7 +264,7 @@ func (s *SliceService) CreateAndRunSolveJob(ctx context.Context, req SolveReques
 	return canonical, nil
 }
 
-func (s *SliceService) executeSolveAndVerify(ctx context.Context, run domain.ScheduleRun, snap domain.ProblemSnapshot, seed int64) (domain.CanonicalResult, error) {
+func (s *SliceService) executeSolveAndVerify(ctx context.Context, run domain.ScheduleRun, snap domain.ProblemSnapshot, seed int64, commitHook func(domain.CanonicalResult, json.RawMessage) error) (domain.CanonicalResult, error) {
 	compileResp, compileErr := s.adapter.CompileConstraints(ctx, curra.CompileRequest{
 		ProblemJSON:     snap.ProblemJSON,
 		ConstraintsJSON: snap.ConstraintInstances,
@@ -178,25 +292,6 @@ func (s *SliceService) executeSolveAndVerify(ctx context.Context, run domain.Sch
 
 	if !verified && canonical.Status == "SOLVED" {
 		canonical.Status = string(domain.StatusInvalidResult)
-		run.Status = domain.StatusInvalidResult
-	} else {
-		run.Status = domain.ScheduleRunStatus(canonical.Status)
-	}
-	now := time.Now()
-	run.FinishedAt = &now
-	run.StartedAt = &run.CreatedAt
-	run.Result = solveResp.Solution
-	run.Score = mustMarshal(curra.ScoreDTO{
-		HardViolations: canonical.HardViolations,
-		SoftPenalty:    canonical.SoftPenalty,
-	})
-	run.Diagnostics = mustMarshal(canonical.Diagnostics)
-	run.RuleSetHash = &ruleSetHash
-	run.CurrAVersion = &canonical.Metadata.EngineVersion
-	run.CurrACommit = &canonical.Metadata.EngineCommit
-	run.DurationMs = ptrInt64(int64(now.Sub(run.CreatedAt) / time.Millisecond))
-	if err := s.repos.ScheduleRuns.Update(ctx, run); err != nil {
-		return domain.CanonicalResult{}, fmt.Errorf("update schedule run: %w", err)
 	}
 
 	if canonical.Status == "SOLVED" {
@@ -211,6 +306,12 @@ func (s *SliceService) executeSolveAndVerify(ctx context.Context, run domain.Sch
 		engineSnap.InputHash = canonical.Metadata.InputHash
 		if err := s.repos.EngineSnapshots.Create(ctx, engineSnap); err != nil {
 			return domain.CanonicalResult{}, fmt.Errorf("persist engine snapshot: %w", err)
+		}
+	}
+
+	if commitHook != nil {
+		if err := commitHook(canonical, solveResp.Solution); err != nil {
+			return domain.CanonicalResult{}, fmt.Errorf("commit hook: %w", err)
 		}
 	}
 
@@ -233,16 +334,12 @@ func (s *SliceService) runIndependentVerification(ctx context.Context, snap doma
 }
 
 func (s *SliceService) recordInvalidProblem(ctx context.Context, run domain.ScheduleRun, snap domain.ProblemSnapshot, seed int64, compileErr error) (domain.CanonicalResult, error) {
-	run.Status = domain.StatusInvalidProblem
-	now := time.Now()
-	run.FinishedAt = &now
-	run.Diagnostics = mustMarshal(map[string]any{"compileError": compileErr.Error()})
-	if err := s.repos.ScheduleRuns.Update(ctx, run); err != nil {
-		return domain.CanonicalResult{}, err
-	}
 	return domain.CanonicalResult{
 		Status:     string(domain.StatusInvalidProblem),
 		SnapshotID: snap.ID,
+		Diagnostics: domain.CanonicalDiagnostics{
+			Message: compileErr.Error(),
+		},
 		Metadata: domain.ResultMetadata{
 			InputHash:   ComputeInputHash(snap, nil),
 			RuleSetHash: "",
@@ -252,16 +349,12 @@ func (s *SliceService) recordInvalidProblem(ctx context.Context, run domain.Sche
 }
 
 func (s *SliceService) recordFailed(ctx context.Context, run domain.ScheduleRun, snap domain.ProblemSnapshot, seed int64, ruleSetHash string, solveErr error) (domain.CanonicalResult, error) {
-	run.Status = domain.StatusFailed
-	now := time.Now()
-	run.FinishedAt = &now
-	run.Diagnostics = mustMarshal(map[string]any{"solveError": solveErr.Error()})
-	if err := s.repos.ScheduleRuns.Update(ctx, run); err != nil {
-		return domain.CanonicalResult{}, err
-	}
 	return domain.CanonicalResult{
 		Status:     string(domain.StatusFailed),
 		SnapshotID: snap.ID,
+		Diagnostics: domain.CanonicalDiagnostics{
+			Message: solveErr.Error(),
+		},
 		Metadata: domain.ResultMetadata{
 			InputHash:   ComputeInputHash(snap, nil),
 			RuleSetHash: ruleSetHash,
@@ -281,26 +374,6 @@ func (s *SliceService) createSnapshot(ctx context.Context, timetableID uuid.UUID
 		return snapshots[0], nil
 	}
 	return domain.ProblemSnapshot{}, errors.New("no snapshot exists for timetable; create a snapshot first")
-}
-
-// ComputeInputHash returns a deterministic SHA-256 hash of the problem
-// revision input. It is the application's reproducibility fingerprint for
-// a given snapshot + solver config + objective config.
-func ComputeInputHash(snap domain.ProblemSnapshot, extra []byte) string {
-	h := sha256.New()
-	h.Write([]byte("problem:"))
-	h.Write(snap.ProblemJSON)
-	h.Write([]byte("|constraints:"))
-	h.Write(snap.ConstraintInstances)
-	h.Write([]byte("|solver:"))
-	h.Write(snap.SolverConfig)
-	h.Write([]byte("|objective:"))
-	h.Write(snap.ObjectiveConfig)
-	if len(extra) > 0 {
-		h.Write([]byte("|extra:"))
-		h.Write(extra)
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 func ptrInt64(v int64) *int64 { return &v }
@@ -408,4 +481,26 @@ func (s *SliceService) GetJob(ctx context.Context, runID uuid.UUID) (SolveJob, e
 		EngineVersion:   engineVer,
 		EngineCommit:    engineCommit,
 	}, nil
+}
+
+// CancelSolveJob requests cancellation of a queued or running solve job.
+func (s *SliceService) CancelSolveJob(ctx context.Context, runID uuid.UUID) error {
+	run, err := s.repos.ScheduleRuns.GetByID(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if err := RequireTenantMatch(ctx, run.InstitutionID); err != nil {
+		return err
+	}
+	if run.Status != domain.StatusQueued && run.Status != domain.StatusRunning {
+		return fmt.Errorf("cannot cancel job in status %s", run.Status)
+	}
+	cancelled, err := s.repos.ScheduleRuns.Cancel(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if !cancelled {
+		return errors.New("cancellation not applied")
+	}
+	return nil
 }

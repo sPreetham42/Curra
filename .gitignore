@@ -37,6 +37,7 @@ Thumbs.db
 # Local AI tooling (personal agent context — not project source)
 .freebuff/
 .claude/
+.opencode/
 
 # Graphify knowledge graph output (regenerated locally; never committed)
 graphify-out/
