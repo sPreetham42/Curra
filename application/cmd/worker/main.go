@@ -38,6 +38,7 @@ func main() {
 	adapter := curra.New(logger)
 
 	w := worker.New("", repos, adapter, logger)
+	w.SetPool(db.Pool)
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()

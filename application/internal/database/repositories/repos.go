@@ -202,6 +202,7 @@ type AuditEventRepo interface {
 type EngineSnapshotRepo interface {
 	Create(ctx context.Context, snap domain.EngineSnapshot) error
 	GetByRunID(ctx context.Context, runID uuid.UUID) (domain.EngineSnapshot, error)
+	GetByID(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error)
 }
 
 // Repos aggregates all repositories.

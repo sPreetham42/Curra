@@ -232,6 +232,14 @@ func (r *mockEngineSnapshotRepo) GetByRunID(ctx context.Context, runID uuid.UUID
 	}
 	return snap, nil
 }
+func (r *mockEngineSnapshotRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error) {
+	for _, s := range r.m.engineSnaps {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return domain.EngineSnapshot{}, repositories.ErrNotFound
+}
 
 type mockCurraAdapter struct{}
 

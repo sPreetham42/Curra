@@ -765,13 +765,14 @@ func (h *Handlers) CompileConstraints(w http.ResponseWriter, r *http.Request) {
 // and the run ID. The job is processed by the background worker.
 // Poll GET /api/v1/solve-jobs/{id} to observe state, or read the full
 // result via GET /api/v1/solve-jobs/{id}/result.
+// Supports Idempotency-Key header for duplicate request deduplication.
 func (h *Handlers) CreateSolveJob(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TimetableID     uuid.UUID  `json:"timetableId"`
 		SnapshotID      *uuid.UUID `json:"snapshotId,omitempty"`
-		Seed           int64      `json:"seed,omitempty"`
-		UseSeed        bool       `json:"useSeed,omitempty"`
-		DeadlineSeconds int       `json:"deadlineSeconds,omitempty"`
+		Seed            int64      `json:"seed,omitempty"`
+		UseSeed         bool       `json:"useSeed,omitempty"`
+		DeadlineSeconds int        `json:"deadlineSeconds,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid request body")
@@ -787,13 +788,15 @@ func (h *Handlers) CreateSolveJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+
 	runID, err := h.slice.CreateSolveJob(r.Context(), services.SolveRequest{
 		TimetableID:      body.TimetableID,
 		SnapshotID:       body.SnapshotID,
 		Seed:             body.Seed,
 		UseSeed:          body.UseSeed,
 		DeadlineSeconds:  body.DeadlineSeconds,
-	}, user.ID)
+	}, user.ID, idempotencyKey)
 	if err != nil {
 		handleError(w, err)
 		return
@@ -851,4 +854,20 @@ func (h *Handlers) CancelSolveJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// GET /api/v1/engine-snapshots/{id}
+func (h *Handlers) GetEngineSnapshot(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid snapshot id")
+		return
+	}
+
+	snap, err := h.slice.GetEngineSnapshot(r.Context(), id)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
 }

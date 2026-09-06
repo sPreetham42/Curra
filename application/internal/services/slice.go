@@ -75,7 +75,8 @@ type SolveJob struct {
 
 // CreateSolveJob creates a durable queued job and returns the run ID.
 // The job is processed asynchronously by the background worker.
-func (s *SliceService) CreateSolveJob(ctx context.Context, req SolveRequest, createdBy uuid.UUID) (uuid.UUID, error) {
+// Supports idempotency-key header for duplicate request deduplication.
+func (s *SliceService) CreateSolveJob(ctx context.Context, req SolveRequest, createdBy uuid.UUID, idempotencyKey string) (uuid.UUID, error) {
 	if req.TimetableID == uuid.Nil {
 		return uuid.Nil, errors.New("timetableID is required")
 	}
@@ -88,18 +89,50 @@ func (s *SliceService) CreateSolveJob(ctx context.Context, req SolveRequest, cre
 		return uuid.Nil, err
 	}
 
+	var lockToken *uuid.UUID
+	if idempotencyKey != "" {
+		keyRecord, isCompleted, err := s.repos.Idempotency.Acquire(ctx, tt.InstitutionID, idempotencyKey, "solve_job")
+		if err != nil {
+			if errors.Is(err, repositories.ErrIdempotencyConflict) {
+				for i := 0; i < 5; i++ {
+					time.Sleep(50 * time.Millisecond)
+					if existing, getErr := s.repos.Idempotency.Get(ctx, tt.InstitutionID, idempotencyKey); getErr == nil && existing != nil && existing.Status == domain.IdempotencyStatusCompleted && existing.ResourceID != nil {
+						return *existing.ResourceID, nil
+					}
+				}
+				return uuid.Nil, ErrConflict
+			}
+			return uuid.Nil, fmt.Errorf("acquire idempotency key: %w", err)
+		}
+		if keyRecord != nil {
+			lockToken = keyRecord.LockToken
+		}
+		if isCompleted && keyRecord != nil && keyRecord.ResourceID != nil {
+			return *keyRecord.ResourceID, nil
+		}
+	}
+
 	var snap domain.ProblemSnapshot
 	if req.SnapshotID != nil {
 		snap, err = s.repos.Snapshots.GetByID(ctx, *req.SnapshotID)
 		if err != nil {
+			if idempotencyKey != "" {
+				_ = s.repos.Idempotency.Release(ctx, tt.InstitutionID, idempotencyKey, lockToken)
+			}
 			return uuid.Nil, err
 		}
 		if snap.TimetableID != req.TimetableID {
+			if idempotencyKey != "" {
+				_ = s.repos.Idempotency.Release(ctx, tt.InstitutionID, idempotencyKey, lockToken)
+			}
 			return uuid.Nil, ErrNotFound
 		}
 	} else {
 		snap, err = s.createSnapshot(ctx, req.TimetableID, createdBy)
 		if err != nil {
+			if idempotencyKey != "" {
+				_ = s.repos.Idempotency.Release(ctx, tt.InstitutionID, idempotencyKey, lockToken)
+			}
 			return uuid.Nil, err
 		}
 	}
@@ -124,7 +157,14 @@ func (s *SliceService) CreateSolveJob(ctx context.Context, req SolveRequest, cre
 		UpdatedAt:       time.Now(),
 	}
 	if err := s.repos.ScheduleRuns.Create(ctx, run); err != nil {
+		if idempotencyKey != "" {
+			_ = s.repos.Idempotency.Release(ctx, tt.InstitutionID, idempotencyKey, lockToken)
+		}
 		return uuid.Nil, fmt.Errorf("create schedule run: %w", err)
+	}
+
+	if idempotencyKey != "" {
+		_ = s.repos.Idempotency.Complete(ctx, tt.InstitutionID, idempotencyKey, lockToken, run.ID, 202, json.RawMessage(fmt.Sprintf(`{"runId":"%s"}`, run.ID)))
 	}
 
 	return run.ID, nil
@@ -503,4 +543,16 @@ func (s *SliceService) CancelSolveJob(ctx context.Context, runID uuid.UUID) erro
 		return errors.New("cancellation not applied")
 	}
 	return nil
+}
+
+// GetEngineSnapshot returns the full engine snapshot including request/response JSONB.
+func (s *SliceService) GetEngineSnapshot(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error) {
+	snap, err := s.repos.EngineSnapshots.GetByID(ctx, id)
+	if err != nil {
+		return domain.EngineSnapshot{}, err
+	}
+	if err := RequireTenantMatch(ctx, snap.InstitutionID); err != nil {
+		return domain.EngineSnapshot{}, err
+	}
+	return snap, nil
 }

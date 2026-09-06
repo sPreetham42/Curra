@@ -282,6 +282,16 @@ func (r *sliceEngineSnapshotRepo) GetByRunID(ctx context.Context, runID uuid.UUI
 	}
 	return s, nil
 }
+func (r *sliceEngineSnapshotRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error) {
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	for _, s := range r.m.engineSnaps {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return domain.EngineSnapshot{}, repositories.ErrNotFound
+}
 
 func (r *sliceTestRepos) buildRepos() *repositories.Repos {
 	return &repositories.Repos{

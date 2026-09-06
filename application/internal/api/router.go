@@ -63,6 +63,9 @@ func NewRouter(h *handlers.Handlers, auth *middleware.AuthMiddleware) http.Handl
 	protectedMux.HandleFunc("GET /api/v1/solve-jobs/{id}/result", h.GetSolveJobResult)
 	protectedMux.HandleFunc("POST /api/v1/solve-jobs/{id}/cancel", h.CancelSolveJob)
 
+	// Engine Snapshots
+	protectedMux.HandleFunc("GET /api/v1/engine-snapshots/{id}", h.GetEngineSnapshot)
+
 	// Academic Catalog (Direct Routes)
 	protectedMux.HandleFunc("GET /api/v1/departments", h.ListDepartments)
 	protectedMux.HandleFunc("POST /api/v1/departments", h.CreateDepartment)

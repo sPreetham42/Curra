@@ -46,3 +46,23 @@ func (r *engineSnapshotRepo) GetByRunID(ctx context.Context, runID uuid.UUID) (d
 	}
 	return snap, nil
 }
+
+func (r *engineSnapshotRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error) {
+	var snap domain.EngineSnapshot
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, schedule_run_id, snapshot_id, institution_id, engine_version,
+		        engine_commit, adapter_version, rule_set_hash, input_hash, request,
+		        response, diagnostics, created_at
+		 FROM engine_snapshots WHERE id = $1`, id).Scan(
+		&snap.ID, &snap.ScheduleRunID, &snap.SnapshotID, &snap.InstitutionID,
+		&snap.EngineVersion, &snap.EngineCommit, &snap.AdapterVersion,
+		&snap.RuleSetHash, &snap.InputHash, &snap.Request, &snap.Response,
+		&snap.Diagnostics, &snap.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return snap, ErrNotFound
+		}
+		return snap, err
+	}
+	return snap, nil
+}

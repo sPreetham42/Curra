@@ -474,3 +474,20 @@ CREATE TABLE IF NOT EXISTS engine_snapshots (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_engine_snapshots_run ON engine_snapshots(schedule_run_id);`
+
+const createScheduleRunQueuedNotify = `
+CREATE OR REPLACE FUNCTION notify_schedule_run_queued()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'QUEUED' AND (OLD.status IS NULL OR OLD.status <> 'QUEUED') THEN
+        PERFORM pg_notify('schedule_run_queued', NEW.id::text);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_notify_schedule_run_queued ON schedule_runs;
+CREATE TRIGGER trg_notify_schedule_run_queued
+AFTER INSERT OR UPDATE OF status ON schedule_runs
+FOR EACH ROW
+EXECUTE FUNCTION notify_schedule_run_queued();`

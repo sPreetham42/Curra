@@ -170,6 +170,15 @@ func (r *hESnap) GetByRunID(ctx context.Context, runID uuid.UUID) (domain.Engine
 	}
 	return s, nil
 }
+func (r *hESnap) GetByID(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error) {
+	r.m.mu.Lock(); defer r.m.mu.Unlock()
+	for _, s := range r.m.engineSnaps {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return domain.EngineSnapshot{}, repositories.ErrNotFound
+}
 
 func (m *sliceHTTPMem) buildRepos() *repositories.Repos {
 	return &repositories.Repos{

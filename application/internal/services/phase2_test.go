@@ -260,6 +260,16 @@ func (r *p2ESnap) GetByRunID(ctx context.Context, runID uuid.UUID) (domain.Engin
 	}
 	return s, nil
 }
+func (r *p2ESnap) GetByID(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error) {
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	for _, s := range r.m.engineSnaps {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return domain.EngineSnapshot{}, repositories.ErrNotFound
+}
 
 func (m *phase2Mem) buildRepos() *repositories.Repos {
 	return &repositories.Repos{
@@ -363,7 +373,7 @@ func TestPhase2_CreateSolveJob_QueuedAndDurable(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -389,7 +399,7 @@ func TestPhase2_WorkerExecutesQueuedRun(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -430,7 +440,7 @@ func TestPhase2_EndToEnd_ReachesEngineV1(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -476,7 +486,7 @@ func TestPhase2_Success_TerminalStateAndResult(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -527,7 +537,7 @@ func TestPhase2_VerificationFailure_NotPublishable(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -604,7 +614,7 @@ func TestPhase2_Failure_InvalidProblemTerminal(t *testing.T) {
 		SnapshotID:  &invalidSnap.ID,
 		Seed:        1,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -638,7 +648,7 @@ func TestPhase2_CancelSolveJob_QueuedToCancelled(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -664,7 +674,7 @@ func TestPhase2_CancelSolveJob_InvalidState(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -689,7 +699,7 @@ func TestPhase2_Timeout_RespectsDeadline(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -726,7 +736,7 @@ func TestPhase2_DuplicateSubmission_DoesNotMutatePreviousRun(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job 1: %v", err)
 	}
@@ -735,7 +745,7 @@ func TestPhase2_DuplicateSubmission_DoesNotMutatePreviousRun(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job 2: %v", err)
 	}
@@ -757,7 +767,7 @@ func TestPhase2_WorkerRecovery_ExpiredLeaseRequeued(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -799,7 +809,7 @@ func TestPhase2_Determinism_SameSeedSameHash(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job 1: %v", err)
 	}
@@ -808,7 +818,7 @@ func TestPhase2_Determinism_SameSeedSameHash(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job 2: %v", err)
 	}
@@ -857,7 +867,7 @@ func TestPhase2_EngineSnapshot_AppendOnlyAndUnique(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -893,7 +903,7 @@ func TestPhase2_GetJob_ReflectsPersistedState(t *testing.T) {
 		SnapshotID:  &snap.ID,
 		Seed:        42,
 		UseSeed:     true,
-	}, uuid.New())
+	}, uuid.New(), "")
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}

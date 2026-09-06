@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,31 @@ import (
 	"github.com/sPreetham42/timetable-platform/application/internal/domain"
 	"github.com/sPreetham42/timetable-platform/application/internal/services"
 )
+
+// Mock EngineSnapshotRepo for testing
+type mockEngineSnapshotRepo struct{ m *mockRepos }
+
+func (r *mockEngineSnapshotRepo) Create(ctx context.Context, snap domain.EngineSnapshot) error {
+	r.m.engineSnaps[snap.ScheduleRunID] = snap
+	return nil
+}
+
+func (r *mockEngineSnapshotRepo) GetByRunID(ctx context.Context, runID uuid.UUID) (domain.EngineSnapshot, error) {
+	s, ok := r.m.engineSnaps[runID]
+	if !ok {
+		return domain.EngineSnapshot{}, repositories.ErrNotFound
+	}
+	return s, nil
+}
+
+func (r *mockEngineSnapshotRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.EngineSnapshot, error) {
+	for _, s := range r.m.engineSnaps {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return domain.EngineSnapshot{}, repositories.ErrNotFound
+}
 
 // Mock repos implementation for testing services
 type mockRepos struct {
@@ -24,6 +50,7 @@ type mockRepos struct {
 	auditEvents []domain.AuditEvent
 	idempotency map[string]domain.IdempotencyKey
 	departments map[uuid.UUID]domain.Department
+	engineSnaps map[uuid.UUID]domain.EngineSnapshot
 }
 
 func newMockRepos() *mockRepos {
@@ -35,6 +62,7 @@ func newMockRepos() *mockRepos {
 		assignments: make(map[uuid.UUID][]domain.ScheduleAssignment),
 		idempotency: make(map[string]domain.IdempotencyKey),
 		departments: make(map[uuid.UUID]domain.Department),
+		engineSnaps: make(map[uuid.UUID]domain.EngineSnapshot),
 	}
 }
 
@@ -485,6 +513,7 @@ func buildTestRepos(m *mockRepos) *repositories.Repos {
 		ScheduleAssignments: &mockAssignmentRepo{m: m},
 		AuditEvents:         &mockAuditRepo{m: m},
 		Idempotency:         &mockIdempotencyRepo{m: m},
+		EngineSnapshots:     &mockEngineSnapshotRepo{m: m},
 	}
 }
 
@@ -819,5 +848,171 @@ func TestRunCancellation_RaceSafe(t *testing.T) {
 	}
 	if noOpRun.Status != domain.StatusCancelled {
 		t.Fatalf("expected status CANCELLED, got %s", noOpRun.Status)
+	}
+}
+
+func TestPhase3_SolveJobIdempotency_SameKeySameRun(t *testing.T) {
+	m := newMockRepos()
+	repos := buildTestRepos(m)
+	adapter := &mockCurraAdapter{}
+	slice := services.NewSliceService(repos, adapter)
+
+	instID := uuid.New()
+	userID := uuid.New()
+	ctx := buildTestContext(instID, userID, domain.RoleScheduler)
+
+	ttID := uuid.New()
+	snapID := uuid.New()
+	m.timetables[ttID] = domain.Timetable{ID: ttID, InstitutionID: instID, Name: "Phase3 Test", Version: 1}
+	m.snapshots[snapID] = domain.ProblemSnapshot{
+		ID:            snapID,
+		TimetableID:   ttID,
+		InstitutionID: instID,
+		ProblemJSON:   []byte(`{}`),
+	}
+
+	const idempotencyKey = "phase3-unique-key-123"
+
+	runID1, err := slice.CreateSolveJob(ctx, services.SolveRequest{
+		TimetableID: ttID,
+		SnapshotID:  &snapID,
+	}, userID, idempotencyKey)
+	if err != nil {
+		t.Fatalf("first create job failed: %v", err)
+	}
+
+	runID2, err := slice.CreateSolveJob(ctx, services.SolveRequest{
+		TimetableID: ttID,
+		SnapshotID:  &snapID,
+	}, userID, idempotencyKey)
+	if err != nil {
+		t.Fatalf("second create job failed: %v", err)
+	}
+
+	if runID1 != runID2 {
+		t.Fatalf("expected same run ID for idempotent request, got %s and %s", runID1, runID2)
+	}
+}
+
+func TestPhase3_SolveJobIdempotency_ConcurrentSameKey(t *testing.T) {
+	m := newMockRepos()
+	repos := buildTestRepos(m)
+	adapter := &mockCurraAdapter{}
+	slice := services.NewSliceService(repos, adapter)
+
+	instID := uuid.New()
+	userID := uuid.New()
+	ctx := buildTestContext(instID, userID, domain.RoleScheduler)
+
+	ttID := uuid.New()
+	snapID := uuid.New()
+	m.timetables[ttID] = domain.Timetable{ID: ttID, InstitutionID: instID, Name: "Concurrent Test", Version: 1}
+	m.snapshots[snapID] = domain.ProblemSnapshot{ID: snapID, TimetableID: ttID, InstitutionID: instID, ProblemJSON: []byte(`{}`)}
+
+	const idempotencyKey = "concurrent-key"
+	const concurrency = 8
+
+	results := make([]uuid.UUID, concurrency)
+	errs := make([]error, concurrency)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			id, err := slice.CreateSolveJob(ctx, services.SolveRequest{
+				TimetableID: ttID,
+				SnapshotID:  &snapID,
+			}, userID, idempotencyKey)
+			results[idx] = id
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	if len(m.runs) != 1 {
+		t.Fatalf("expected exactly 1 run persisted across %d concurrent requests, got %d", concurrency, len(m.runs))
+	}
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("request %d failed: %v", i, err)
+		}
+		if results[i] != results[0] {
+			t.Fatalf("request %d returned run %s, expected all to return %s", i, results[i], results[0])
+		}
+	}
+}
+
+func TestPhase3_SolveJobIdempotency_NoKeyStillWorks(t *testing.T) {
+	m := newMockRepos()
+	repos := buildTestRepos(m)
+	adapter := &mockCurraAdapter{}
+	slice := services.NewSliceService(repos, adapter)
+
+	instID := uuid.New()
+	userID := uuid.New()
+	ctx := buildTestContext(instID, userID, domain.RoleScheduler)
+	ttID := uuid.New()
+	snapID := uuid.New()
+	m.timetables[ttID] = domain.Timetable{ID: ttID, InstitutionID: instID, Name: "NoKey Test", Version: 1}
+	m.snapshots[snapID] = domain.ProblemSnapshot{ID: snapID, TimetableID: ttID, InstitutionID: instID, ProblemJSON: []byte(`{}`)}
+
+	runID1, err := slice.CreateSolveJob(ctx, services.SolveRequest{TimetableID: ttID, SnapshotID: &snapID}, userID, "")
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	runID2, err := slice.CreateSolveJob(ctx, services.SolveRequest{TimetableID: ttID, SnapshotID: &snapID}, userID, "")
+	if err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+	if runID1 == runID2 {
+		t.Fatalf("without key, two requests must create two distinct runs")
+	}
+}
+
+func TestPhase3_EngineSnapshot_GetByID(t *testing.T) {
+	m := newMockRepos()
+	repos := buildTestRepos(m)
+
+	instID := uuid.New()
+	snapID := uuid.New()
+	runID := uuid.New()
+	engineSnap := domain.EngineSnapshot{
+		ID:             uuid.New(),
+		ScheduleRunID:  runID,
+		SnapshotID:     snapID,
+		InstitutionID:  instID,
+		EngineVersion:  "v1.0.0",
+		EngineCommit:   "abc123",
+		AdapterVersion: "1.0.0",
+		RuleSetHash:    "hash123",
+		InputHash:      "input123",
+		Request:        json.RawMessage(`{"problem":{}}`),
+		Response:       json.RawMessage(`{"assignments":[]}`),
+		Diagnostics:    json.RawMessage(`{}`),
+	}
+	m.engineSnaps[runID] = engineSnap
+
+	ctx := buildTestContext(instID, uuid.New(), domain.RoleScheduler)
+
+	found, err := repos.EngineSnapshots.GetByID(ctx, engineSnap.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if found.ID != engineSnap.ID {
+		t.Fatalf("expected engine snapshot ID %s, got %s", engineSnap.ID, found.ID)
+	}
+	if found.EngineVersion != "v1.0.0" {
+		t.Fatalf("expected engine version v1.0.0, got %s", found.EngineVersion)
+	}
+}
+
+func TestPhase3_EngineSnapshot_GetByID_NotFound(t *testing.T) {
+	m := newMockRepos()
+	repos := buildTestRepos(m)
+
+	ctx := buildTestContext(uuid.New(), uuid.New(), domain.RoleScheduler)
+	_, err := repos.EngineSnapshots.GetByID(ctx, uuid.New())
+	if err == nil {
+		t.Fatal("expected not-found error for missing engine snapshot")
 	}
 }

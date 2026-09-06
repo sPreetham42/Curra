@@ -9,20 +9,24 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sPreetham42/timetable-platform/application/internal/asyncrun"
 	"github.com/sPreetham42/timetable-platform/application/internal/curra"
 	"github.com/sPreetham42/timetable-platform/application/internal/database/repositories"
 	"github.com/sPreetham42/timetable-platform/application/internal/domain"
 )
 
+const notifyChannel = "schedule_run_queued"
+
 type Worker struct {
-	id          string
-	repos       *repositories.Repos
-	adapter     curra.CurraAdapter
-	logger      *slog.Logger
-	maxRetries  int
-	pollPeriod  time.Duration
-	reapPeriod  time.Duration
+	id         string
+	repos      *repositories.Repos
+	adapter    curra.CurraAdapter
+	logger     *slog.Logger
+	maxRetries int
+	pollPeriod time.Duration
+	reapPeriod time.Duration
+	pool       *pgxpool.Pool
 }
 
 func New(id string, repos *repositories.Repos, adapter curra.CurraAdapter, logger *slog.Logger) *Worker {
@@ -40,6 +44,10 @@ func New(id string, repos *repositories.Repos, adapter curra.CurraAdapter, logge
 	}
 }
 
+func (w *Worker) SetPool(pool *pgxpool.Pool) {
+	w.pool = pool
+}
+
 func (w *Worker) ID() string {
 	return w.id
 }
@@ -52,6 +60,15 @@ func (w *Worker) Start(ctx context.Context) error {
 
 	reapTicker := time.NewTicker(w.reapPeriod)
 	defer reapTicker.Stop()
+
+	notifyCh := make(chan struct{}, 1)
+	stopCh := make(chan struct{})
+	if w.pool != nil {
+		go w.listenForNotifications(ctx, notifyCh, stopCh)
+		defer close(stopCh)
+	} else {
+		close(stopCh)
+	}
 
 	w.poll(ctx)
 
@@ -69,8 +86,70 @@ func (w *Worker) Start(ctx context.Context) error {
 				w.logger.Info("reaped expired runs", "count", reaped)
 			}
 
+		case <-notifyCh:
+			w.poll(ctx)
+
 		case <-pollTicker.C:
 			w.poll(ctx)
+		}
+	}
+}
+
+// listenForNotifications subscribes to the schedule_run_queued channel
+// and signals notifyCh whenever a notification arrives. The polling
+// loop in Start() is the source of truth; notifications are only
+// wake-up hints that can be safely missed.
+//
+// On any connection error, the listener backs off and reconnects.
+// The polling fallback in Start() guarantees no queued run is starved.
+func (w *Worker) listenForNotifications(ctx context.Context, notifyCh chan<- struct{}, stopCh <-chan struct{}) {
+	const backoff = 5 * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stopCh:
+			return
+		default:
+		}
+
+		if err := w.listenOnce(ctx, notifyCh, stopCh); err != nil {
+			w.logger.Warn("LISTEN/NOTIFY connection lost, will reconnect", "error", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-stopCh:
+				return
+			case <-time.After(backoff):
+			}
+		}
+	}
+}
+
+func (w *Worker) listenOnce(ctx context.Context, notifyCh chan<- struct{}, stopCh <-chan struct{}) error {
+	conn, err := w.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	notifyConn := conn.Conn()
+	if _, err := notifyConn.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
+		return fmt.Errorf("LISTEN: %w", err)
+	}
+	w.logger.Info("LISTEN/NOTIFY active on channel", "channel", notifyChannel)
+
+	for {
+		_, err := notifyConn.WaitForNotification(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			return fmt.Errorf("WaitForNotification: %w", err)
+		}
+		select {
+		case notifyCh <- struct{}{}:
+		default:
 		}
 	}
 }
