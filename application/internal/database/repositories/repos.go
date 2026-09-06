@@ -66,6 +66,7 @@ type SubjectRepo interface {
 type FacultyRepo interface {
 	Create(ctx context.Context, fac domain.Faculty) error
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Faculty, error)
+	ExistsByInstitution(ctx context.Context, instID uuid.UUID, name string) (bool, error)
 	ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.Faculty, error)
 	Update(ctx context.Context, fac domain.Faculty) error
 }
@@ -75,6 +76,7 @@ type RoomRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Room, error)
 	ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.Room, error)
 	Update(ctx context.Context, room domain.Room) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type RoomFeatureRepo interface {
@@ -82,11 +84,19 @@ type RoomFeatureRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.RoomFeature, error)
 	ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.RoomFeature, error)
 	Update(ctx context.Context, rf domain.RoomFeature) error
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type RoomFeatureAssignmentRepo interface {
+	Create(ctx context.Context, roomID, featureID uuid.UUID) error
+	Delete(ctx context.Context, roomID, featureID uuid.UUID) error
+	ListByRoom(ctx context.Context, roomID uuid.UUID) ([]domain.RoomFeature, error)
 }
 
 type TimeSlotRepo interface {
 	Create(ctx context.Context, ts domain.TimeSlot) error
 	GetByID(ctx context.Context, id uuid.UUID) (domain.TimeSlot, error)
+	ExistsByID(ctx context.Context, id uuid.UUID) (bool, error)
 	ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.TimeSlot, error)
 	Update(ctx context.Context, ts domain.TimeSlot) error
 }
@@ -218,6 +228,7 @@ type Repos struct {
 	Faculty             FacultyRepo
 	Rooms               RoomRepo
 	RoomFeatures        RoomFeatureRepo
+	RoomFeatureAssignments RoomFeatureAssignmentRepo
 	TimeSlots           TimeSlotRepo
 	AcademicYears       AcademicYearRepo
 	Terms               TermRepo
@@ -250,6 +261,7 @@ func NewRepos(pool *pgxpool.Pool) *Repos {
 		Faculty:             &facultyRepo{pool: pool},
 		Rooms:               &roomRepo{pool: pool},
 		RoomFeatures:        &roomFeatureRepo{pool: pool},
+		RoomFeatureAssignments: &roomFeatureAssignmentRepo{pool: pool},
 		TimeSlots:           &timeSlotRepo{pool: pool},
 		AcademicYears:       &academicYearRepo{pool: pool},
 		Terms:               &termRepo{pool: pool},

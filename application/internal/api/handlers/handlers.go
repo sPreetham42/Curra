@@ -748,6 +748,563 @@ func (h *Handlers) ListTimeSlots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+// Academic Years
+func (h *Handlers) ListAcademicYears(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.catalog.ListAcademicYears(r.Context(), instID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) CreateAcademicYear(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "name is required")
+		return
+	}
+	item, err := h.catalog.CreateAcademicYear(r.Context(), instID, req.Name)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Terms
+func (h *Handlers) ListTerms(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.catalog.ListTerms(r.Context(), instID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) CreateTerm(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		AcademicYearID uuid.UUID `json:"academicYearId"`
+		Name           string    `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.AcademicYearID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "academicYearId and name are required")
+		return
+	}
+	item, err := h.catalog.CreateTerm(r.Context(), instID, req.AcademicYearID, req.Name)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Time Slots
+func (h *Handlers) CreateTimeSlot(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		Day    string `json:"day"`
+		Period int    `json:"period"`
+		Label  string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Day == "" || req.Period <= 0 || req.Label == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "day, period, and label are required")
+		return
+	}
+	item, err := h.catalog.CreateTimeSlot(r.Context(), instID, req.Day, req.Period, req.Label)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Programs
+func (h *Handlers) CreateProgram(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		DepartmentID uuid.UUID `json:"departmentId"`
+		Name         string    `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.DepartmentID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "departmentId and name are required")
+		return
+	}
+	item, err := h.catalog.CreateProgram(r.Context(), instID, req.DepartmentID, req.Name)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Classes
+func (h *Handlers) CreateClass(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		ProgramID uuid.UUID `json:"programId"`
+		Name      string    `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.ProgramID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "programId and name are required")
+		return
+	}
+	item, err := h.catalog.CreateClass(r.Context(), instID, req.ProgramID, req.Name)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Student Groups
+func (h *Handlers) CreateStudentGroup(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		ClassID     uuid.UUID `json:"classId"`
+		Name        string    `json:"name"`
+		Size        int       `json:"size"`
+		IsWhole     bool      `json:"isWhole"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.ClassID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "classId, name and size are required")
+		return
+	}
+	item, err := h.catalog.CreateStudentGroup(r.Context(), instID, req.ClassID, req.Name, req.Size, req.IsWhole)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Subjects
+func (h *Handlers) CreateSubject(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		Code string `json:"code"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "code and name are required")
+		return
+	}
+	item, err := h.catalog.CreateSubject(r.Context(), instID, req.Code, req.Name)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Faculty
+func (h *Handlers) CreateFaculty(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "name is required")
+		return
+	}
+	item, err := h.catalog.CreateFaculty(r.Context(), instID, req.Name)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Rooms
+func (h *Handlers) CreateRoom(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		Name     string `json:"name"`
+		Capacity int    `json:"capacity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "name is required")
+		return
+	}
+	item, err := h.catalog.CreateRoom(r.Context(), instID, req.Name, req.Capacity)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Room Features
+func (h *Handlers) ListRoomFeatures(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.catalog.ListRoomFeatures(r.Context(), instID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) CreateRoomFeature(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "name is required")
+		return
+	}
+	item, err := h.catalog.CreateRoomFeature(r.Context(), instID, req.Name)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Room Feature Assignments
+func (h *Handlers) GetRoomFeatures(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	roomID, err := uuid.Parse(r.PathValue("roomId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid roomId")
+		return
+	}
+	items, err := h.catalog.GetRoomFeatures(r.Context(), instID, roomID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) AssignRoomFeature(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	roomID, err := uuid.Parse(r.PathValue("roomId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid roomId")
+		return
+	}
+	var req struct {
+		FeatureID uuid.UUID `json:"featureId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.FeatureID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "featureId is required")
+		return
+	}
+	if err := h.catalog.AssignRoomFeature(r.Context(), instID, roomID, req.FeatureID); err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusNoContent, nil)
+}
+
+func (h *Handlers) UnassignRoomFeature(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	roomID, err := uuid.Parse(r.PathValue("roomId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid roomId")
+		return
+	}
+	featureID, err := uuid.Parse(r.PathValue("featureId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid featureId")
+		return
+	}
+	if err := h.catalog.UnassignRoomFeature(r.Context(), instID, roomID, featureID); err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusNoContent, nil)
+}
+
+// Course Offerings
+func (h *Handlers) ListCourseOfferings(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.catalog.ListCourseOfferings(r.Context(), instID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) CreateCourseOffering(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		TermID         uuid.UUID `json:"termId"`
+		ClassID        uuid.UUID `json:"classId"`
+		SubjectID      uuid.UUID `json:"subjectId"`
+		StudentGroupID uuid.UUID `json:"studentGroupId"`
+		FacultyID      uuid.UUID `json:"facultyId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TermID == uuid.Nil || req.ClassID == uuid.Nil || req.SubjectID == uuid.Nil || req.StudentGroupID == uuid.Nil || req.FacultyID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "termId, classId, subjectId, studentGroupId, and facultyId are required")
+		return
+	}
+	item, err := h.catalog.CreateCourseOffering(r.Context(), instID, req.TermID, req.ClassID, req.SubjectID, req.StudentGroupID, req.FacultyID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Session Requirements
+func (h *Handlers) CreateSessionRequirement(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		CourseOfferingID uuid.UUID `json:"courseOfferingId"`
+		Type             string    `json:"type"` // THEORY or LAB
+		SessionsPerWeek  int       `json:"sessionsPerWeek"`
+		Duration         int       `json:"duration"`
+		Consecutive      bool      `json:"consecutive"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.CourseOfferingID == uuid.Nil || req.Type == "" || req.SessionsPerWeek <= 0 || req.Duration <= 0 {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "courseOfferingId, type (THEORY|LAB), sessionsPerWeek, and duration are required")
+		return
+	}
+	item, err := h.catalog.CreateSessionRequirement(r.Context(), instID, req.CourseOfferingID, req.Type, req.SessionsPerWeek, req.Duration, req.Consecutive)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// Faculty Availability
+func (h *Handlers) ListFacultyAvailability(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.catalog.ListFacultyAvailability(r.Context(), instID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) CreateFacultyAvailability(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		FacultyID  uuid.UUID `json:"facultyId"`
+		TimeSlotID uuid.UUID `json:"timeSlotId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.FacultyID == uuid.Nil || req.TimeSlotID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "facultyId and timeSlotId are required")
+		return
+	}
+	item, err := h.catalog.CreateFacultyAvailability(r.Context(), instID, req.FacultyID, req.TimeSlotID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handlers) DeleteFacultyAvailability(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid id")
+		return
+	}
+	if err := h.catalog.DeleteFacultyAvailability(r.Context(), id); err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// Room Availability
+func (h *Handlers) ListRoomAvailability(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.catalog.ListRoomAvailability(r.Context(), instID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) CreateRoomAvailability(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		RoomID     uuid.UUID `json:"roomId"`
+		TimeSlotID uuid.UUID `json:"timeSlotId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RoomID == uuid.Nil || req.TimeSlotID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "roomId and timeSlotId are required")
+		return
+	}
+	item, err := h.catalog.CreateRoomAvailability(r.Context(), instID, req.RoomID, req.TimeSlotID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handlers) DeleteRoomAvailability(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid id")
+		return
+	}
+	if err := h.catalog.DeleteRoomAvailability(r.Context(), id); err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// Faculty Preferences
+func (h *Handlers) ListFacultyPreferences(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	items, err := h.catalog.ListFacultyPreferences(r.Context(), instID)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handlers) CreateFacultyPreference(w http.ResponseWriter, r *http.Request) {
+	instID, ok := services.InstitutionIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	var req struct {
+		FacultyID  uuid.UUID `json:"facultyId"`
+		TimeSlotID uuid.UUID `json:"timeSlotId"`
+		Weight     int       `json:"weight"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.FacultyID == uuid.Nil || req.TimeSlotID == uuid.Nil || req.Weight <= 0 {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "facultyId, timeSlotId, and weight (positive integer) are required")
+		return
+	}
+	item, err := h.catalog.CreateFacultyPreference(r.Context(), instID, req.FacultyID, req.TimeSlotID, req.Weight)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handlers) DeleteFacultyPreference(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid id")
+		return
+	}
+	if err := h.catalog.DeleteFacultyPreference(r.Context(), id); err != nil {
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 // CompileConstraints endpoint
 func (h *Handlers) CompileConstraints(w http.ResponseWriter, r *http.Request) {
 	var req curra.CompileRequest

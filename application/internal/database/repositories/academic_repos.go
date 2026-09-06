@@ -221,6 +221,11 @@ func (r *facultyRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.Faculty
 	err := r.pool.QueryRow(ctx, `SELECT id,institution_id,name,version,created_at,updated_at FROM faculty WHERE id=$1`, id).Scan(&f.ID, &f.InstitutionID, &f.Name, &f.Version, &f.CreatedAt, &f.UpdatedAt)
 	return f, err
 }
+func (r *facultyRepo) ExistsByInstitution(ctx context.Context, instID uuid.UUID, name string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM faculty WHERE institution_id=$1 AND LOWER(name)=LOWER($2))`, instID, name).Scan(&exists)
+	return exists, err
+}
 func (r *facultyRepo) ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.Faculty, error) {
 	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,name,version,created_at,updated_at FROM faculty WHERE institution_id=$1 ORDER BY name`, instID)
 	if err != nil {
@@ -288,6 +293,17 @@ func (r *roomRepo) Update(ctx context.Context, rm domain.Room) error {
 	return nil
 }
 
+func (r *roomRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM rooms WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // RoomFeature Repo
 type roomFeatureRepo struct{ pool *pgxpool.Pool }
 
@@ -328,6 +344,57 @@ func (r *roomFeatureRepo) Update(ctx context.Context, rf domain.RoomFeature) err
 	return nil
 }
 
+func (r *roomFeatureRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM room_features WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RoomFeatureAssignments Repo
+type roomFeatureAssignmentRepo struct{ pool *pgxpool.Pool }
+
+func (r *roomFeatureAssignmentRepo) Create(ctx context.Context, roomID, featureID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `INSERT INTO room_feature_assignments (room_id, room_feature_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+		roomID, featureID)
+	return err
+}
+
+func (r *roomFeatureAssignmentRepo) Delete(ctx context.Context, roomID, featureID uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM room_feature_assignments WHERE room_id=$1 AND room_feature_id=$2`, roomID, featureID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *roomFeatureAssignmentRepo) ListByRoom(ctx context.Context, roomID uuid.UUID) ([]domain.RoomFeature, error) {
+	rows, err := r.pool.Query(ctx, `SELECT rf.id, rf.institution_id, rf.name, rf.version, rf.created_at, rf.updated_at
+		FROM room_features rf
+		JOIN room_feature_assignments rfa ON rf.id = rfa.room_feature_id
+		WHERE rfa.room_id = $1`, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.RoomFeature
+	for rows.Next() {
+		var rf domain.RoomFeature
+		if err := rows.Scan(&rf.ID, &rf.InstitutionID, &rf.Name, &rf.Version, &rf.CreatedAt, &rf.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rf)
+	}
+	return out, nil
+}
+
 // TimeSlot Repo
 type timeSlotRepo struct{ pool *pgxpool.Pool }
 
@@ -340,6 +407,11 @@ func (r *timeSlotRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.TimeSl
 	var ts domain.TimeSlot
 	err := r.pool.QueryRow(ctx, `SELECT id,institution_id,day,period,label,version,created_at,updated_at FROM time_slots WHERE id=$1`, id).Scan(&ts.ID, &ts.InstitutionID, &ts.Day, &ts.Period, &ts.Label, &ts.Version, &ts.CreatedAt, &ts.UpdatedAt)
 	return ts, err
+}
+func (r *timeSlotRepo) ExistsByID(ctx context.Context, id uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM time_slots WHERE id=$1)`, id).Scan(&exists)
+	return exists, err
 }
 func (r *timeSlotRepo) ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.TimeSlot, error) {
 	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,day,period,label,version,created_at,updated_at FROM time_slots WHERE institution_id=$1 ORDER BY day, period`, instID)
@@ -611,6 +683,11 @@ func (r *facultyAvailabilityRepo) Create(ctx context.Context, fa domain.FacultyA
 		fa.ID, fa.InstitutionID, fa.FacultyID, fa.TimeSlotID)
 	return err
 }
+func (r *facultyAvailabilityRepo) ExistsByFacultyAndTimeSlot(ctx context.Context, facultyID, timeSlotID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM faculty_availability WHERE faculty_id=$1 AND time_slot_id=$2)`, facultyID, timeSlotID).Scan(&exists)
+	return exists, err
+}
 func (r *facultyAvailabilityRepo) ListByFaculty(ctx context.Context, facultyID uuid.UUID) ([]domain.FacultyAvailability, error) {
 	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,faculty_id,time_slot_id,created_at FROM faculty_availability WHERE faculty_id=$1`, facultyID)
 	if err != nil {
@@ -700,6 +777,11 @@ func (r *facultyPreferenceRepo) Create(ctx context.Context, fp domain.FacultyPre
 	_, err := r.pool.Exec(ctx, `INSERT INTO faculty_preferences (id,institution_id,faculty_id,time_slot_id,weight) VALUES ($1,$2,$3,$4,$5)`,
 		fp.ID, fp.InstitutionID, fp.FacultyID, fp.TimeSlotID, fp.Weight)
 	return err
+}
+func (r *facultyPreferenceRepo) ExistsByFacultyAndTimeSlot(ctx context.Context, facultyID, timeSlotID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM faculty_preferences WHERE faculty_id=$1 AND time_slot_id=$2)`, facultyID, timeSlotID).Scan(&exists)
+	return exists, err
 }
 func (r *facultyPreferenceRepo) ListByFaculty(ctx context.Context, facultyID uuid.UUID) ([]domain.FacultyPreference, error) {
 	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,faculty_id,time_slot_id,weight,created_at FROM faculty_preferences WHERE faculty_id=$1`, facultyID)
