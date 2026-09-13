@@ -47,3 +47,8 @@ graphify-out/
 .env.local
 .env.*
 !.env.example
+
+# Curated Graphify Artifacts
+graphify/*
+!graphify/README.md
+!graphify/GRAPH_REPORT.md
