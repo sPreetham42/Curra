@@ -212,13 +212,13 @@ func (r *subjectRepo) Update(ctx context.Context, s domain.Subject) error {
 type facultyRepo struct{ pool *pgxpool.Pool }
 
 func (r *facultyRepo) Create(ctx context.Context, f domain.Faculty) error {
-	_, err := r.pool.Exec(ctx, `INSERT INTO faculty (id,institution_id,name,version) VALUES ($1,$2,$3,$4)`,
-		f.ID, f.InstitutionID, f.Name, f.Version)
+	_, err := r.pool.Exec(ctx, `INSERT INTO faculty (id,institution_id,name,department_id,version) VALUES ($1,$2,$3,$4,$5)`,
+		f.ID, f.InstitutionID, f.Name, f.DepartmentID, f.Version)
 	return err
 }
 func (r *facultyRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.Faculty, error) {
 	var f domain.Faculty
-	err := r.pool.QueryRow(ctx, `SELECT id,institution_id,name,version,created_at,updated_at FROM faculty WHERE id=$1`, id).Scan(&f.ID, &f.InstitutionID, &f.Name, &f.Version, &f.CreatedAt, &f.UpdatedAt)
+	err := r.pool.QueryRow(ctx, `SELECT id,institution_id,name,department_id,version,created_at,updated_at FROM faculty WHERE id=$1`, id).Scan(&f.ID, &f.InstitutionID, &f.Name, &f.DepartmentID, &f.Version, &f.CreatedAt, &f.UpdatedAt)
 	return f, err
 }
 func (r *facultyRepo) ExistsByInstitution(ctx context.Context, instID uuid.UUID, name string) (bool, error) {
@@ -227,7 +227,7 @@ func (r *facultyRepo) ExistsByInstitution(ctx context.Context, instID uuid.UUID,
 	return exists, err
 }
 func (r *facultyRepo) ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.Faculty, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,name,version,created_at,updated_at FROM faculty WHERE institution_id=$1 ORDER BY name`, instID)
+	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,name,department_id,version,created_at,updated_at FROM faculty WHERE institution_id=$1 ORDER BY name`, instID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (r *facultyRepo) ListByInstitution(ctx context.Context, instID uuid.UUID) (
 	var out []domain.Faculty
 	for rows.Next() {
 		var f domain.Faculty
-		if err := rows.Scan(&f.ID, &f.InstitutionID, &f.Name, &f.Version, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.InstitutionID, &f.Name, &f.DepartmentID, &f.Version, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -243,7 +243,7 @@ func (r *facultyRepo) ListByInstitution(ctx context.Context, instID uuid.UUID) (
 	return out, nil
 }
 func (r *facultyRepo) Update(ctx context.Context, f domain.Faculty) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE faculty SET name=$1, version=version+1, updated_at=now() WHERE id=$2 AND version=$3`, f.Name, f.ID, f.Version)
+	tag, err := r.pool.Exec(ctx, `UPDATE faculty SET name=$1, department_id=$2, version=version+1, updated_at=now() WHERE id=$3 AND version=$4`, f.Name, f.DepartmentID, f.ID, f.Version)
 	if err != nil {
 		return err
 	}
@@ -524,17 +524,17 @@ func (r *termRepo) Update(ctx context.Context, t domain.Term) error {
 type courseOfferingRepo struct{ pool *pgxpool.Pool }
 
 func (r *courseOfferingRepo) Create(ctx context.Context, co domain.CourseOffering) error {
-	_, err := r.pool.Exec(ctx, `INSERT INTO course_offerings (id,institution_id,term_id,class_id,subject_id,student_group_id,faculty_id,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		co.ID, co.InstitutionID, co.TermID, co.ClassID, co.SubjectID, co.StudentGroupID, co.FacultyID, co.Version)
+	_, err := r.pool.Exec(ctx, `INSERT INTO course_offerings (id,institution_id,term_id,class_id,subject_id,student_group_id,faculty_id,academic_year_id,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		co.ID, co.InstitutionID, co.TermID, co.ClassID, co.SubjectID, co.StudentGroupID, co.FacultyID, co.AcademicYearID, co.Version)
 	return err
 }
 func (r *courseOfferingRepo) GetByID(ctx context.Context, id uuid.UUID) (domain.CourseOffering, error) {
 	var co domain.CourseOffering
-	err := r.pool.QueryRow(ctx, `SELECT id,institution_id,term_id,class_id,subject_id,student_group_id,faculty_id,version,created_at,updated_at FROM course_offerings WHERE id=$1`, id).Scan(&co.ID, &co.InstitutionID, &co.TermID, &co.ClassID, &co.SubjectID, &co.StudentGroupID, &co.FacultyID, &co.Version, &co.CreatedAt, &co.UpdatedAt)
+	err := r.pool.QueryRow(ctx, `SELECT id,institution_id,term_id,class_id,subject_id,student_group_id,faculty_id,academic_year_id,version,created_at,updated_at FROM course_offerings WHERE id=$1`, id).Scan(&co.ID, &co.InstitutionID, &co.TermID, &co.ClassID, &co.SubjectID, &co.StudentGroupID, &co.FacultyID, &co.AcademicYearID, &co.Version, &co.CreatedAt, &co.UpdatedAt)
 	return co, err
 }
 func (r *courseOfferingRepo) ListByInstitution(ctx context.Context, instID uuid.UUID) ([]domain.CourseOffering, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,term_id,class_id,subject_id,student_group_id,faculty_id,version,created_at,updated_at FROM course_offerings WHERE institution_id=$1 ORDER BY created_at`, instID)
+	rows, err := r.pool.Query(ctx, `SELECT id,institution_id,term_id,class_id,subject_id,student_group_id,faculty_id,academic_year_id,version,created_at,updated_at FROM course_offerings WHERE institution_id=$1 ORDER BY created_at`, instID)
 	if err != nil {
 		return nil, err
 	}
@@ -542,7 +542,7 @@ func (r *courseOfferingRepo) ListByInstitution(ctx context.Context, instID uuid.
 	var out []domain.CourseOffering
 	for rows.Next() {
 		var co domain.CourseOffering
-		if err := rows.Scan(&co.ID, &co.InstitutionID, &co.TermID, &co.ClassID, &co.SubjectID, &co.StudentGroupID, &co.FacultyID, &co.Version, &co.CreatedAt, &co.UpdatedAt); err != nil {
+		if err := rows.Scan(&co.ID, &co.InstitutionID, &co.TermID, &co.ClassID, &co.SubjectID, &co.StudentGroupID, &co.FacultyID, &co.AcademicYearID, &co.Version, &co.CreatedAt, &co.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, co)
@@ -550,7 +550,7 @@ func (r *courseOfferingRepo) ListByInstitution(ctx context.Context, instID uuid.
 	return out, nil
 }
 func (r *courseOfferingRepo) Update(ctx context.Context, co domain.CourseOffering) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE course_offerings SET faculty_id=$1, version=version+1, updated_at=now() WHERE id=$2 AND version=$3`, co.FacultyID, co.ID, co.Version)
+	tag, err := r.pool.Exec(ctx, `UPDATE course_offerings SET faculty_id=$1, academic_year_id=$2, version=version+1, updated_at=now() WHERE id=$3 AND version=$4`, co.FacultyID, co.AcademicYearID, co.ID, co.Version)
 	if err != nil {
 		return err
 	}

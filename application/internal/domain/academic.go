@@ -61,6 +61,7 @@ type Faculty struct {
 	ID            uuid.UUID
 	InstitutionID uuid.UUID
 	Name          string
+	DepartmentID  *uuid.UUID
 	Version       int
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -124,6 +125,7 @@ type CourseOffering struct {
 	StudentGroupID         uuid.UUID
 	FacultyID              uuid.UUID
 	RequiredRoomFeatureIDs []uuid.UUID
+	AcademicYearID         uuid.UUID
 	Version                int
 	CreatedAt              time.Time
 	UpdatedAt              time.Time

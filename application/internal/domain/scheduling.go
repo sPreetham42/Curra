@@ -84,6 +84,16 @@ type ScheduleRun struct {
 	UpdatedAt       time.Time
 }
 
+type SchedulingConfig struct {
+	ID            uuid.UUID
+	InstitutionID uuid.UUID
+	Name          string
+	Config        json.RawMessage
+	Version       int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type ScheduleVersion struct {
 	ID            uuid.UUID
 	TimetableID   uuid.UUID

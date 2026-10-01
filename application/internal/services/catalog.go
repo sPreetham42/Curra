@@ -165,7 +165,7 @@ func (s *CatalogService) ListFaculty(ctx context.Context, instID uuid.UUID) ([]d
 	return s.repos.Faculty.ListByInstitution(ctx, instID)
 }
 
-func (s *CatalogService) CreateFaculty(ctx context.Context, instID uuid.UUID, name string) (domain.Faculty, error) {
+func (s *CatalogService) CreateFaculty(ctx context.Context, instID, departmentID uuid.UUID, name string) (domain.Faculty, error) {
 	if err := RequireTenantMatch(ctx, instID); err != nil {
 		return domain.Faculty{}, err
 	}
@@ -176,6 +176,7 @@ func (s *CatalogService) CreateFaculty(ctx context.Context, instID uuid.UUID, na
 		ID:            uuid.New(),
 		InstitutionID: instID,
 		Name:          name,
+		DepartmentID:  &departmentID,
 		Version:       1,
 	}
 	if err := s.repos.Faculty.Create(ctx, fac); err != nil {
@@ -423,6 +424,487 @@ func (s *CatalogService) ListTimeSlots(ctx context.Context, instID uuid.UUID) ([
 	return s.repos.TimeSlots.ListByInstitution(ctx, instID)
 }
 
+// Departments
+func (s *CatalogService) GetDepartment(ctx context.Context, instID, id uuid.UUID) (domain.Department, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Department{}, err
+	}
+	dept, err := s.repos.Departments.GetByID(ctx, id)
+	if err != nil {
+		return domain.Department{}, err
+	}
+	if dept.InstitutionID != instID {
+		return domain.Department{}, ErrNotFound
+	}
+	return dept, nil
+}
+
+func (s *CatalogService) UpdateDepartment(ctx context.Context, instID, id uuid.UUID, name string, version int) (domain.Department, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Department{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.Department{}, err
+	}
+	dept, err := s.repos.Departments.GetByID(ctx, id)
+	if err != nil {
+		return domain.Department{}, err
+	}
+	if dept.InstitutionID != instID {
+		return domain.Department{}, ErrNotFound
+	}
+	if dept.Version != version {
+		return domain.Department{}, ErrConflict
+	}
+	dept.Name = name
+	if err := s.repos.Departments.Update(ctx, dept); err != nil {
+		return domain.Department{}, err
+	}
+	return s.repos.Departments.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteDepartment(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	dept, err := s.repos.Departments.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if dept.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if dept.Version != version {
+		return ErrConflict
+	}
+	return s.repos.Departments.Delete(ctx, id)
+}
+
+// Programs
+func (s *CatalogService) GetProgram(ctx context.Context, instID, id uuid.UUID) (domain.Program, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Program{}, err
+	}
+	prog, err := s.repos.Programs.GetByID(ctx, id)
+	if err != nil {
+		return domain.Program{}, err
+	}
+	if prog.InstitutionID != instID {
+		return domain.Program{}, ErrNotFound
+	}
+	return prog, nil
+}
+
+func (s *CatalogService) UpdateProgram(ctx context.Context, instID, id, deptID uuid.UUID, name string, version int) (domain.Program, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Program{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.Program{}, err
+	}
+	prog, err := s.repos.Programs.GetByID(ctx, id)
+	if err != nil {
+		return domain.Program{}, err
+	}
+	if prog.InstitutionID != instID {
+		return domain.Program{}, ErrNotFound
+	}
+	if prog.Version != version {
+		return domain.Program{}, ErrConflict
+	}
+	prog.Name = name
+	prog.DepartmentID = deptID
+	if err := s.repos.Programs.Update(ctx, prog); err != nil {
+		return domain.Program{}, err
+	}
+	return s.repos.Programs.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteProgram(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	prog, err := s.repos.Programs.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if prog.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if prog.Version != version {
+		return ErrConflict
+	}
+	return s.repos.Programs.Delete(ctx, id)
+}
+
+// Classes
+func (s *CatalogService) GetClass(ctx context.Context, instID, id uuid.UUID) (domain.Class, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Class{}, err
+	}
+	cls, err := s.repos.Classes.GetByID(ctx, id)
+	if err != nil {
+		return domain.Class{}, err
+	}
+	if cls.InstitutionID != instID {
+		return domain.Class{}, ErrNotFound
+	}
+	return cls, nil
+}
+
+func (s *CatalogService) UpdateClass(ctx context.Context, instID, id, progID uuid.UUID, name string, version int) (domain.Class, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Class{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.Class{}, err
+	}
+	cls, err := s.repos.Classes.GetByID(ctx, id)
+	if err != nil {
+		return domain.Class{}, err
+	}
+	if cls.InstitutionID != instID {
+		return domain.Class{}, ErrNotFound
+	}
+	if cls.Version != version {
+		return domain.Class{}, ErrConflict
+	}
+	cls.Name = name
+	cls.ProgramID = progID
+	if err := s.repos.Classes.Update(ctx, cls); err != nil {
+		return domain.Class{}, err
+	}
+	return s.repos.Classes.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteClass(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	cls, err := s.repos.Classes.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if cls.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if cls.Version != version {
+		return ErrConflict
+	}
+	return s.repos.Classes.Delete(ctx, id)
+}
+
+// Student Groups
+func (s *CatalogService) GetStudentGroup(ctx context.Context, instID, id uuid.UUID) (domain.StudentGroup, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.StudentGroup{}, err
+	}
+	sg, err := s.repos.StudentGroups.GetByID(ctx, id)
+	if err != nil {
+		return domain.StudentGroup{}, err
+	}
+	if sg.InstitutionID != instID {
+		return domain.StudentGroup{}, ErrNotFound
+	}
+	return sg, nil
+}
+
+func (s *CatalogService) UpdateStudentGroup(ctx context.Context, instID, id, classID uuid.UUID, name string, size int, isWhole bool, version int) (domain.StudentGroup, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.StudentGroup{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.StudentGroup{}, err
+	}
+	sg, err := s.repos.StudentGroups.GetByID(ctx, id)
+	if err != nil {
+		return domain.StudentGroup{}, err
+	}
+	if sg.InstitutionID != instID {
+		return domain.StudentGroup{}, ErrNotFound
+	}
+	if sg.Version != version {
+		return domain.StudentGroup{}, ErrConflict
+	}
+	sg.Name = name
+	sg.ClassID = classID
+	sg.Size = size
+	sg.IsWholeGroup = isWhole
+	if err := s.repos.StudentGroups.Update(ctx, sg); err != nil {
+		return domain.StudentGroup{}, err
+	}
+	return s.repos.StudentGroups.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteStudentGroup(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	sg, err := s.repos.StudentGroups.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if sg.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if sg.Version != version {
+		return ErrConflict
+	}
+	return s.repos.StudentGroups.Delete(ctx, id)
+}
+
+// Subjects
+func (s *CatalogService) GetSubject(ctx context.Context, instID, id uuid.UUID) (domain.Subject, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Subject{}, err
+	}
+	subj, err := s.repos.Subjects.GetByID(ctx, id)
+	if err != nil {
+		return domain.Subject{}, err
+	}
+	if subj.InstitutionID != instID {
+		return domain.Subject{}, ErrNotFound
+	}
+	return subj, nil
+}
+
+func (s *CatalogService) UpdateSubject(ctx context.Context, instID, id uuid.UUID, code, name string, version int) (domain.Subject, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Subject{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.Subject{}, err
+	}
+	subj, err := s.repos.Subjects.GetByID(ctx, id)
+	if err != nil {
+		return domain.Subject{}, err
+	}
+	if subj.InstitutionID != instID {
+		return domain.Subject{}, ErrNotFound
+	}
+	if subj.Version != version {
+		return domain.Subject{}, ErrConflict
+	}
+	subj.Code = code
+	subj.Name = name
+	if err := s.repos.Subjects.Update(ctx, subj); err != nil {
+		return domain.Subject{}, err
+	}
+	return s.repos.Subjects.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteSubject(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	subj, err := s.repos.Subjects.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if subj.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if subj.Version != version {
+		return ErrConflict
+	}
+	return s.repos.Subjects.Delete(ctx, id)
+}
+
+// Academic Years
+func (s *CatalogService) GetAcademicYear(ctx context.Context, instID, id uuid.UUID) (domain.AcademicYear, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.AcademicYear{}, err
+	}
+	ay, err := s.repos.AcademicYears.GetByID(ctx, id)
+	if err != nil {
+		return domain.AcademicYear{}, err
+	}
+	if ay.InstitutionID != instID {
+		return domain.AcademicYear{}, ErrNotFound
+	}
+	return ay, nil
+}
+
+func (s *CatalogService) UpdateAcademicYear(ctx context.Context, instID, id uuid.UUID, name string, version int) (domain.AcademicYear, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.AcademicYear{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.AcademicYear{}, err
+	}
+	ay, err := s.repos.AcademicYears.GetByID(ctx, id)
+	if err != nil {
+		return domain.AcademicYear{}, err
+	}
+	if ay.InstitutionID != instID {
+		return domain.AcademicYear{}, ErrNotFound
+	}
+	if ay.Version != version {
+		return domain.AcademicYear{}, ErrConflict
+	}
+	ay.Name = name
+	if err := s.repos.AcademicYears.Update(ctx, ay); err != nil {
+		return domain.AcademicYear{}, err
+	}
+	return s.repos.AcademicYears.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteAcademicYear(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	ay, err := s.repos.AcademicYears.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ay.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if ay.Version != version {
+		return ErrConflict
+	}
+	return s.repos.AcademicYears.Delete(ctx, id)
+}
+
+// Terms
+func (s *CatalogService) GetTerm(ctx context.Context, instID, id uuid.UUID) (domain.Term, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Term{}, err
+	}
+	term, err := s.repos.Terms.GetByID(ctx, id)
+	if err != nil {
+		return domain.Term{}, err
+	}
+	if term.InstitutionID != instID {
+		return domain.Term{}, ErrNotFound
+	}
+	return term, nil
+}
+
+func (s *CatalogService) UpdateTerm(ctx context.Context, instID, id, academicYearID uuid.UUID, name string, version int) (domain.Term, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.Term{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.Term{}, err
+	}
+	term, err := s.repos.Terms.GetByID(ctx, id)
+	if err != nil {
+		return domain.Term{}, err
+	}
+	if term.InstitutionID != instID {
+		return domain.Term{}, ErrNotFound
+	}
+	if term.Version != version {
+		return domain.Term{}, ErrConflict
+	}
+	term.Name = name
+	term.AcademicYearID = academicYearID
+	if err := s.repos.Terms.Update(ctx, term); err != nil {
+		return domain.Term{}, err
+	}
+	return s.repos.Terms.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteTerm(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	term, err := s.repos.Terms.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if term.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if term.Version != version {
+		return ErrConflict
+	}
+	return s.repos.Terms.Delete(ctx, id)
+}
+
+// Time Slots
+func (s *CatalogService) GetTimeSlot(ctx context.Context, instID, id uuid.UUID) (domain.TimeSlot, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.TimeSlot{}, err
+	}
+	ts, err := s.repos.TimeSlots.GetByID(ctx, id)
+	if err != nil {
+		return domain.TimeSlot{}, err
+	}
+	if ts.InstitutionID != instID {
+		return domain.TimeSlot{}, ErrNotFound
+	}
+	return ts, nil
+}
+
+func (s *CatalogService) UpdateTimeSlot(ctx context.Context, instID, id uuid.UUID, day string, period int, label string, version int) (domain.TimeSlot, error) {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return domain.TimeSlot{}, err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return domain.TimeSlot{}, err
+	}
+	ts, err := s.repos.TimeSlots.GetByID(ctx, id)
+	if err != nil {
+		return domain.TimeSlot{}, err
+	}
+	if ts.InstitutionID != instID {
+		return domain.TimeSlot{}, ErrNotFound
+	}
+	if ts.Version != version {
+		return domain.TimeSlot{}, ErrConflict
+	}
+	ts.Day = day
+	ts.Period = period
+	ts.Label = label
+	if err := s.repos.TimeSlots.Update(ctx, ts); err != nil {
+		return domain.TimeSlot{}, err
+	}
+	return s.repos.TimeSlots.GetByID(ctx, id)
+}
+
+func (s *CatalogService) DeleteTimeSlot(ctx context.Context, instID, id uuid.UUID, version int) error {
+	if err := RequireTenantMatch(ctx, instID); err != nil {
+		return err
+	}
+	if err := RequireRole(ctx, domain.RoleInstitutionAdmin, domain.RoleScheduler); err != nil {
+		return err
+	}
+	ts, err := s.repos.TimeSlots.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ts.InstitutionID != instID {
+		return ErrNotFound
+	}
+	if ts.Version != version {
+		return ErrConflict
+	}
+	return s.repos.TimeSlots.Delete(ctx, id)
+}
+
 func (s *CatalogService) CreateTimeSlot(ctx context.Context, instID uuid.UUID, day string, period int, label string) (domain.TimeSlot, error) {
 	if err := RequireTenantMatch(ctx, instID); err != nil {
 		return domain.TimeSlot{}, err
@@ -515,7 +997,7 @@ func (s *CatalogService) ListCourseOfferings(ctx context.Context, instID uuid.UU
 	return s.repos.CourseOfferings.ListByInstitution(ctx, instID)
 }
 
-func (s *CatalogService) CreateCourseOffering(ctx context.Context, instID, termID, classID, subjectID, studentGroupID, facultyID uuid.UUID) (domain.CourseOffering, error) {
+func (s *CatalogService) CreateCourseOffering(ctx context.Context, instID, termID, classID, subjectID, studentGroupID, facultyID, academicYearID uuid.UUID) (domain.CourseOffering, error) {
 	if err := RequireTenantMatch(ctx, instID); err != nil {
 		return domain.CourseOffering{}, err
 	}
@@ -530,6 +1012,7 @@ func (s *CatalogService) CreateCourseOffering(ctx context.Context, instID, termI
 		SubjectID:      subjectID,
 		StudentGroupID: studentGroupID,
 		FacultyID:      facultyID,
+		AcademicYearID: academicYearID,
 		Version:        1,
 	}
 	if err := s.repos.CourseOfferings.Create(ctx, co); err != nil {
